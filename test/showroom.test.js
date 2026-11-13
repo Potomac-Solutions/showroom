@@ -7,6 +7,13 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createApp } from '../server.js';
 
+// A redirect's location as words: the signature on its message (kit/notice) checked and taken off.
+const plain = (location) => {
+  location = String(location ?? '');
+  if (/[?&](problem|done)=/.test(location) && !location.startsWith('?')) assert.match(location, /&sig=[\w-]{22}/, `unsigned message: ${location}`);
+  return decodeURIComponent(location.replace(/&sig=[\w-]+/, '').replaceAll('+', ' '));
+};
+
 // The owner every test shop starts with, set up from the shop's setup link; cheap hashing for tests.
 const OWNER = { email: 'owner@example.com', name: 'Test Owner', password: 'test owner password' };
 const COST = { N: 2 ** 10, r: 8, p: 1 };
@@ -54,7 +61,7 @@ async function device(site, name, { javaScriptEnabled = true, staff = false } = 
   await page.goto(site.base);
   const post = async (path, form, headers = {}) => {
     const response = await context.request.post(`${site.base}${path}`, { form, headers, maxRedirects: 0 });
-    return { status: response.status(), location: decodeURIComponent(response.headers().location ?? '') };
+    return { status: response.status(), location: plain(response.headers().location ?? '') };
   };
   const get = async (path) => (await context.request.get(`${site.base}${path}`)).text();
   if (staff) await post('/staff/sign-in', { email: OWNER.email, password: OWNER.password });
@@ -93,7 +100,7 @@ test('without JavaScript: browse the floor, hold a piece till tomorrow, and let 
   const office = await device(app, 'office', { javaScriptEnabled: false, staff: true });
   assert.match(await office.get('/back'), /B&amp;O Railroad lantern[\s\S]*On hold<br><small>hold: Rosa Bittinger, 301-555-0100/);
   await page.click('form[action$="/release"] button');
-  await page.waitForURL((url) => decodeURIComponent(url.search).includes('done=Let go'));
+  await page.waitForURL((url) => plain(url.search).includes('done=Let go'));
   assert.equal(find(app, 'B&O Railroad lantern').state, 'available');
   await Promise.all([shopper.context.close(), other.context.close(), office.context.close()]);
 });
@@ -216,7 +223,7 @@ test('the back office adds a piece with photos; only real images, a title and a 
 
   const multipart = async (fields) => {
     const response = await office.context.request.post(`${app.base}/back/add`, { multipart: fields, maxRedirects: 0 });
-    return decodeURIComponent(response.headers().location ?? '');
+    return plain(response.headers().location ?? '');
   };
   assert.equal(await multipart({ title: 'Not a picture', price: '10', photos: { name: 'x.html', mimeType: 'text/html', buffer: Buffer.from('<script>alert(1)</script>') } }), '/back?problem=Photos must be PNG, JPEG, WebP or AVIF.');
   assert.equal(await multipart({ title: '', price: '10' }), '/back?problem=Give it a title.');

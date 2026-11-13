@@ -13,6 +13,7 @@ import { createZubra } from '@zubra/server';
 import { signedCookie } from '@potomac-solutions/kit/auth';
 import { createStaff } from '@potomac-solutions/kit/staff';
 import { staffPages } from '@potomac-solutions/kit/staff/pages';
+import { createNotices } from '@potomac-solutions/kit/notice';
 import { diskFiles } from '@potomac-solutions/kit/files';
 import { createShowroom } from './src/showroom.js';
 import { layout, escape } from './src/layout.js';
@@ -38,13 +39,16 @@ export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showr
   // shop's own log; their pages and routes are the kit's too.
   const production = process.env.NODE_ENV === 'production';
   const staff = createStaff({ store: room.store, secure: production, ...(staffCost ? { cost: staffCost } : {}) });
-  const pages = staffPages({ staff, home: '/back', business: shop.name, secure: production, render: (res, title, body) => page(res, zubra.page(), title, body) });
+  // A message in an address shows only if the server signed it (kit/notice), so a link can't put
+  // its own words in a page's alert.
+  const notices = createNotices({ secret });
+  const pages = staffPages({ staff, notices, proxies: Number(process.env.TRUST_PROXIES ?? 0), home: '/back', business: shop.name, secure: production, render: (res, title, body) => page(res, zubra.page(), title, body) });
   const send = (res, status, html) => (res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' }), res.end(html));
-  const back = (res, location) => (res.writeHead(303, { location }), res.end());
+  const back = (res, location) => (res.writeHead(303, { location: notices.sign(location) }), res.end());
   const page = (res, p, title, body) => send(res, 200, p.finish(layout({ title, shop, body })));
   const note = (url) => {
-    const problem = (url.searchParams.get('problem') ?? '').slice(0, 200);
-    const done = (url.searchParams.get('done') ?? '').slice(0, 200);
+    const problem = notices.read(url).problem;
+    const done = notices.read(url).done;
     return `${problem ? `<p class="notice" role="alert">${escape(problem)}</p>` : ''}${done ? `<p class="ok" role="status">${escape(done)}</p>` : ''}`;
   };
   const withProblem = (path, answer) => `${path}?problem=${encodeURIComponent(answer.error)}`;
