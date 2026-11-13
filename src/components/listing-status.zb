@@ -1,0 +1,33 @@
+<!--
+  Whether a listing is free, live: available, on hold (until when, and whether it's yours), or
+  sold. The listing's unit is a Sync document only the server writes ('use collection units by
+  unit'), so when someone holds, buys or lets it go, every page showing it follows without a
+  reload. The server HTML already has the state.
+-->
+<script>
+  'use collection units by unit'
+  import { from } from '@zubra/runtime'
+
+  let state = from(stateNow)
+  let by = from(byNow)
+  let until = from(untilNow)
+
+  // The server can't format a date, so it sends the time already in words (`until-label`); the
+  // element formats a new one itself when the hold changes live.
+  const when = until === untilNow ? untilLabel : until ? new Date(until).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone }) : ''
+  // `now` is when the page was made: a hold past it has run out (the sweep frees it for live pages).
+  const held = state === 'held' && until > now
+  const mine = held && me && by === me
+</script>
+<style>
+  :host { display: inline-block; }
+  span { display: inline-block; padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.85rem; font-weight: 700; }
+  .available { background: #e1f0e3; color: #1d4d27; }
+  .held { background: #f7ead2; color: #6a4210; }
+  .sold { background: #ead9d9; color: #6b1f1f; }
+</style>
+<listing-status unit="" me="" state-now="free" by-now="" until-now={0} until-label="" now={0} time-zone="America/New_York">
+  <span class="sold" zb-if={state === 'taken'}>Sold</span>
+  <span class="held" zb-if={held}>{mine ? `Held for you until ${when}` : `On hold until ${when}`}</span>
+  <span class="available" zb-if={state !== 'taken' && !held}>Available</span>
+</listing-status>
