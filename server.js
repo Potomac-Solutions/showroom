@@ -11,6 +11,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createZubra } from '@zubra/server';
 import { signedCookie } from '@potomac-solutions/kit/auth';
+import { createStaff } from '@potomac-solutions/kit/staff';
+import { staffPages } from '@potomac-solutions/kit/staff/pages';
 import { diskFiles } from '@potomac-solutions/kit/files';
 import { createShowroom } from './src/showroom.js';
 import { layout, escape } from './src/layout.js';
@@ -19,21 +21,24 @@ const here = dirname(fileURLToPath(import.meta.url));
 const components = join(here, 'src', 'components');
 const money = (cents) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showroom.db'), photos = join(process.env.DATA_DIR ?? here, 'photos'), cache = true, secret = process.env.SESSION_SECRET, now, holdMs, files } = {}) {
+export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showroom.db'), photos = join(process.env.DATA_DIR ?? here, 'photos'), cache = true, secret = process.env.SESSION_SECRET, now, holdMs, files , staffCost } = {}) {
   if (!secret) {
     if (process.env.NODE_ENV === 'production') throw new Error('Set SESSION_SECRET.');
     secret = 'showroom-development-only';
   }
   const room = await createShowroom({ db, files: files ?? diskFiles(photos), now, holdMs });
   const guests = signedCookie({ secret, name: 'guest' });
-  // Staff accounts come later: for the concept, a device signs in to the back office.
-  const staff = signedCookie({ secret, name: 'staff', maxAge: 12 * 3600 });
   const zubra = createZubra({ components, cache, packages: ['@potomac-solutions/kit/components'] });
   const { shop } = room;
   // Holds that have run out are let go every minute, so every page sees them free.
   const sweeper = setInterval(() => room.sweep?.(), 60_000);
   sweeper.unref();
 
+  // The people who run the shop: an owner and the staff they invite (the kit's staff module), in the
+  // shop's own log; their pages and routes are the kit's too.
+  const production = process.env.NODE_ENV === 'production';
+  const staff = createStaff({ store: room.store, secure: production, ...(staffCost ? { cost: staffCost } : {}) });
+  const pages = staffPages({ staff, home: '/back', business: shop.name, secure: production, render: (res, title, body) => page(res, zubra.page(), title, body) });
   const send = (res, status, html) => (res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' }), res.end(html));
   const back = (res, location) => (res.writeHead(303, { location }), res.end());
   const page = (res, p, title, body) => send(res, 200, p.finish(layout({ title, shop, body })));
@@ -118,7 +123,8 @@ ${note(url)}
         return res.end(file.body);
       }
       const guest = guests.ensure(req, res);
-      const inBack = Boolean(staff.read(req.headers.cookie ?? ''));
+      const who = staff.session(req);
+      const inBack = staff.can(who, 'staff');
 
       if (req.method === 'POST') {
         // Every form is ours: another site's post is refused (the cookies are SameSite=Lax too).
@@ -133,10 +139,8 @@ ${note(url)}
           const said = { hold: 'It’s held for you until tomorrow. We’ll call if you don’t make it.', release: 'Let go. It’s back on the floor.', buy: `It’s yours. ${shop.pickup}`, ask: 'Sent. We’ll call you back.' }[what];
           return back(res, withDone(`/l/${key}`, said));
         }
-        if (url.pathname === '/staff/start') {
-          res.setHeader('set-cookie', staff.cookie('back'));
-          return back(res, '/back');
-        }
+        // Sign-in, links, people and passwords.
+        if (await pages.handle(req, res, url, form)) return;
         if (url.pathname.startsWith('/back/')) {
           if (!inBack) return back(res, '/back');
           if (url.pathname === '/back/add') {
@@ -157,14 +161,15 @@ ${note(url)}
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'Method not allowed');
 
+      if (await pages.handle(req, res, url, null)) return;
       const p = zubra.page();
       if (url.pathname === '/') return page(res, p, 'The shop floor', floor(p, url, guest));
       const showing = url.pathname.match(/^\/l\/(l[a-z0-9]+)$/);
       const listing = showing && room.listing(showing[1], guest.pub);
       if (listing) return page(res, p, listing.title, listingPage(p, url, guest, listing));
       if (url.pathname === '/back') {
-        if (!inBack) return page(res, p, 'The back office', `<section><h1>The back office</h1><p class="lede">This page is for the shop. Staff accounts come later; for the concept, any device can sign in.</p></section><form method="post" action="/staff/start"><button type="submit">Sign in to the back office</button></form>`);
-        return page(res, p, 'The back office', backOffice(url));
+        if (!inBack) return page(res, p, 'Sign in', pages.signIn(url));
+        return page(res, p, 'The back office', pages.bar(who) + backOffice(url));
       }
       send(res, 404, 'Not found');
     } catch (error) {
@@ -174,11 +179,12 @@ ${note(url)}
     }
   });
   server.on('close', () => clearInterval(sweeper));
-  return Object.assign(server, { room });
+  return Object.assign(server, { room, staff });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT ?? 3000);
   const server = await createApp();
+  if (server.staff.needsOwner()) console.log(`Set up the first owner (works once, for a day): http://localhost:${port}/staff/accept?token=${await server.staff.setup()}`);
   server.listen(port, '0.0.0.0', () => console.log(`Showroom on http://localhost:${port}`));
 }

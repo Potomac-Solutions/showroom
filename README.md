@@ -8,6 +8,8 @@ The shop it starts with, Old Depot Antiques & Consignment in Frostburg, Maryland
 
 `npm install`, then `npm start`, and open http://localhost:3000. Two browser windows side by side (one private, so it's another person) show the live parts best.
 
+**Staff sign in with their own accounts.** The first time, nobody has one, so the server prints a setup link: open it to make the owner (your email, name and a password). The owner's **People** page invites the rest of the staff (an invite is a link to send them), resets passwords and turns people off.
+
 1. **Hold a piece.** Open the railroad lantern, give a name and a phone number, and **Hold it**. It's held for you until this time tomorrow.
 2. **Watch the floor.** In the other window, the lantern's card says **On hold** without a reload, and the piece can't be held or bought there. **Let it go** in the first window, and it's **Available** again in both.
 3. **Buy online.** Buy the rug with any card number (`4000 0000 0000 0002` is declined, to see that: a piece you weren't holding goes straight back on the floor). Once bought, it shows **Sold** everywhere and moves to the end of the floor.
@@ -19,7 +21,7 @@ The shop it starts with, Old Depot Antiques & Consignment in Frostburg, Maryland
 
 | Piece | Job |
 | --- | --- |
-| [Potomac kit](https://github.com/Potomac-Solutions/kit) (private) | `hold` (each piece is a pool of one: held for a day, held for the minutes a payment takes, or taken for good), `pay` (its test provider, one charge per piece), `files` (photos, kept by their hash; only real images), `auth` (guest and staff cookies), `store` (the Sync log) |
+| [Potomac kit](https://github.com/Potomac-Solutions/kit) (private) | `hold` (each piece is a pool of one: held for a day, held for the minutes a payment takes, or taken for good), `pay` (its test provider, one charge per piece), `files` (photos, kept by their hash; only real images), `staff` and `staff/pages` (the owner and staff: passwords, sessions, invites, roles, and their pages), `auth` (guest and staff cookies), `store` (the Sync log) |
 | `@zubra/server` | Renders every page before any JavaScript runs |
 | `@zubra/sync` | The log (one SQLite file). Each listing and whether it's free are documents only the server writes; pages follow them live, and never read who holds or bought a piece |
 | `src/shop.js` | The shop: name, hours, how long a hold lasts, the pieces it starts with |
@@ -53,4 +55,4 @@ Every behaviour was broken on purpose once to check a test fails (24 of 26 caugh
 
 - The owner's admin: the shop's details and how long a hold lasts, now in `src/shop.js`. Editing a piece or its photos after it's listed.
 - Consignors: who brought a piece in, their split, and a page where they see what sold.
-- Texts when a hold is about to run out (the kit's `notify`), staff accounts, shipping, and a real payment provider.
+- Texts when a hold is about to run out (the kit's `notify`), shipping, and a real payment provider.

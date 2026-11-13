@@ -7,6 +7,15 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { createApp } from '../server.js';
 
+// The owner every test shop starts with, set up from the shop's setup link; cheap hashing for tests.
+const OWNER = { email: 'owner@example.com', name: 'Test Owner', password: 'test owner password' };
+const COST = { N: 2 ** 10, r: 8, p: 1 };
+async function withOwner(server) {
+  const made = await server.staff.accept(await server.staff.setup(), OWNER);
+  if (!made.ok) throw new Error(made.error);
+  return server;
+}
+
 const dir = mkdtempSync(join(tmpdir(), 'showroom-'));
 const errors = [];
 let browser;
@@ -14,7 +23,7 @@ let app;
 let quick; // holds that last a second and a half
 
 async function start(name, options = {}) {
-  const server = await createApp({ db: join(dir, `${name}.db`), photos: join(dir, `${name}-photos`), cache: false, secret: 'test', ...options });
+  const server = await withOwner(await createApp({ staffCost: COST, db: join(dir, `${name}.db`), photos: join(dir, `${name}-photos`), cache: false, secret: 'test', ...options }));
   await new Promise((done) => server.listen(0, done));
   return { server, base: `http://localhost:${server.address().port}` };
 }
@@ -48,7 +57,7 @@ async function device(site, name, { javaScriptEnabled = true, staff = false } = 
     return { status: response.status(), location: decodeURIComponent(response.headers().location ?? '') };
   };
   const get = async (path) => (await context.request.get(`${site.base}${path}`)).text();
-  if (staff) await post('/staff/start', {});
+  if (staff) await post('/staff/sign-in', { email: OWNER.email, password: OWNER.password });
   return { context, page, post, get };
 }
 /** A seeded listing by title. */
@@ -213,10 +222,10 @@ test('the back office adds a piece with photos; only real images, a title and a 
   assert.equal(await multipart({ title: '', price: '10' }), '/back?problem=Give it a title.');
   assert.equal(await multipart({ title: 'Free?', price: '0' }), '/back?problem=Give a price in dollars.');
   const outsider = await device(app, 'not staff', { javaScriptEnabled: false });
-  assert.match(await outsider.get('/back'), /Sign in to the back office/);
+  assert.match(await outsider.get('/back'), /<button type=\"submit\">Sign in<\/button>/);
   assert.equal((await outsider.post('/back/sold', { key: crock.key })).location, '/back');
   assert.equal(find(app, 'Crock, 3 gallon').state, 'available');
-  assert.equal((await outsider.post('/staff/start', {}, { 'sec-fetch-site': 'cross-site' })).status, 403);
+  assert.equal((await outsider.post('/staff/sign-in', {}, { 'sec-fetch-site': 'cross-site' })).status, 403);
   await office.context.close();
   await outsider.context.close();
 });
