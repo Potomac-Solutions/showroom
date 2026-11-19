@@ -6,16 +6,30 @@ The shop it starts with, Old Depot Antiques & Consignment in Frostburg, Maryland
 
 ## Try it
 
-`npm install`, then `npm start`, and open http://localhost:3000. Two browser windows side by side (one private, so it's another person) show the live parts best.
+`npm install`, then `npm run demo`: it fills the shop with six months of made-up pieces coming in and selling, forty customers, today's holds and questions, and starts it on http://localhost:3000. It prints three demo sign-ins, for this machine only:
 
-**Staff sign in with their own accounts.** The first time, nobody has one, so the server prints a setup link: open it to make the owner (your email, name and a password). The owner's **People** page invites the rest of the staff (an invite is a link to send them), resets passwords and turns people off.
+| Who | Email | Password | Where |
+| --- | --- | --- | --- |
+| Owner | `owner@example.com` | `old-depot-owner-demo` | `/admin`: everything |
+| Staff | `floor@example.com` | `old-depot-staff-demo` | `/admin` (overview, inventory, sales, questions, customers), `/back` |
+| Customer | `riley@example.com` | `old-depot-guest-demo` | `/account` |
 
-1. **Hold a piece.** Open the railroad lantern, give a name and a phone number, and **Hold it**. It's held for you until this time tomorrow.
-2. **Watch the floor.** In the other window, the lantern's card says **On hold** without a reload, and the piece can't be held or bought there. **Let it go** in the first window, and it's **Available** again in both.
-3. **Buy online.** Buy the rug with any card number (`4000 0000 0000 0002` is declined, to see that: a piece you weren't holding goes straight back on the floor). Once bought, it shows **Sold** everywhere and moves to the end of the floor.
-4. **Ask about it.** Send a question about the pitcher.
-5. **The back office.** Open **The back office** from the footer and sign in. Add a piece with a couple of photos from your phone or computer; it's on the floor at once. Mark something **Sold in the shop** (a walk-in paid cash), let a hold go, and read the question from step 4, with the name and number to call back.
-6. **Without JavaScript** (turn it off in the browser's settings), all of it works the same.
+The demo's pieces have no photos (each card says "Photo coming"); add some from the back office. `npm start` alone keeps what's there; with no data it prints a setup link for the first owner instead. `npm run seed` fills an empty shop, and `npm run seed -- --fresh` starts over.
+
+**The public side**
+1. **The landing page** (`/`): the shop, how holding and buying work, and the floor: everything for sale, then the six latest sales.
+2. **Hold a piece.** Give a name and a phone number, and **Hold it**: it's yours until this time tomorrow. In another window it says **On hold** without a reload.
+3. **Buy online** with any card number (`4000 0000 0000 0002` is declined). It shows **Sold** everywhere, and a receipt lands in the owner's **Outbox**.
+4. **An account** (`/account`): sign up, and holds and purchases from this browser join it. Signed in on another device, what you hold is still yours: buy it from there. **Forgot your password?** sends a one-time link (to the Outbox, and the server's log).
+
+**The admin** (`/admin`, staff sign-in)
+5. **Overview**: sales for the last 30 days against the 30 before, how long pieces take to sell, what's on the floor and at what asking prices, what's on hold and for whom, questions waiting, new accounts, sales by day, the latest sales, and what the staff did.
+6. **Inventory**: search, filter by state and category, CSV. A piece's page edits it, sells it in the shop, lets its hold go, and shows the questions about it.
+7. **Sales** (online and in the shop, as CSV), **Questions** (mark them answered) and **Customers** (what each bought; an owner can turn an account off or email a reset link).
+8. **Reports** (owners): sales by day, week or month in the shop's time zone, by category, online against in the shop, how long pieces took to sell, pieces added, and what's sat more than 90 days; with CSV.
+9. **Settings** (owners): the hours and pickup words.
+10. **The back office** (`/back`): add a piece with photos, sell at the counter, let holds go.
+11. **Without JavaScript** (turn it off in the browser's settings), all of it works the same.
 
 ## How it is put together
 
@@ -25,7 +39,10 @@ The shop it starts with, Old Depot Antiques & Consignment in Frostburg, Maryland
 | `@zubra/server` | Renders every page before any JavaScript runs |
 | `@zubra/sync` | The log (one SQLite file). Each listing and whether it's free are documents only the server writes; pages follow them live, and never read who holds or bought a piece |
 | `src/shop.js` | The shop: name, hours, how long a hold lasts, the pieces it starts with |
-| `src/showroom.js` | The shop's side: the floor, holds, buying, questions, adding pieces, sold in the shop |
+| `src/showroom.js` | The shop's side: the floor, holds, buying, questions, adding and editing pieces, sold in the shop, what follows a customer account, the owner's settings and the staff activity |
+| `kit/customers`, `kit/reports`, `kit/charts` | Customer accounts; the numbers by day, week or month, and CSV; charts drawn on the server as SVG, with a table under each |
+| `src/account.js`, `src/admin.js` | The account pages; the admin |
+| `bin/seed.js` | The demo data |
 | `listing-status` | The live badge: Available, On hold until…, Held for you until…, Sold |
 
 ## Run it
@@ -49,10 +66,21 @@ Node 22.13 or later. `SESSION_SECRET` is required in production; `DATA_DIR` says
 7. The back office adds a piece with photos (the same picture twice is one file) and serves them; it refuses anything that isn't an image, a missing title or price, and anyone who isn't signed in; another site's post is refused.
 8. A page reads the listings and whether each is free, nothing else, even when it asks: no names, no phone numbers. It writes nothing.
 
+The admin, customer accounts and reports (`test/admin.test.js`, over plain HTTP):
+
+9. The landing page leads with the shop, then the floor; a guest sees no admin link.
+10. A hold made before signing up joins the account; signed in on another device it's theirs and can be bought there; the sale shows on both, and its receipt is in the outbox.
+11. A forgotten password gets the same page whether or not the account exists; the emailed link works once.
+12. The admin needs a staff sign-in; staff get no reports, settings or outbox (403) and their settings posts change nothing; owners get them all.
+13. Staff edit a piece (a bad price is refused) and sell it in the shop from the admin, once; it's in the sales and the activity; a later price change doesn't alter the sale.
+14. A question reaches the admin and is marked answered.
+15. The report's sales match the sales and its CSV adds up to them; a title starting with `=` opens in a spreadsheet as text.
+16. A turned-off customer is signed out; only an owner can turn them back on.
+
 Every behaviour was broken on purpose once to check a test fails (24 of 26 caught). The two that can't be: a page may write nothing because every collection is the server's (the check stays as a safety belt), and a photo address must be a hash because the kit's `files` already refuses any other name.
 
 ## Not yet
 
-- The owner's admin: the shop's details and how long a hold lasts, now in `src/shop.js`. Editing a piece or its photos after it's listed.
+- More of the owner's admin: the shop's name and how long a hold lasts are still in `src/shop.js` (hours and pickup words are editable). Changing a piece's photos after it's listed.
 - Consignors: who brought a piece in, their split, and a page where they see what sold.
-- Texts when a hold is about to run out (the kit's `notify`), shipping, and a real payment provider.
+- Texts when a hold is about to run out, real email (receipts and reset links go to the outbox), shipping, and a real payment provider.

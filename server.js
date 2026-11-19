@@ -12,7 +12,11 @@ import { fileURLToPath } from 'node:url';
 import { createZubra } from '@zubra/server';
 import { signedCookie } from '@potomac-solutions/kit/auth';
 import { createStaff } from '@potomac-solutions/kit/staff';
-import { staffPages } from '@potomac-solutions/kit/staff/pages';
+import { staffPages, clientAddress } from '@potomac-solutions/kit/staff/pages';
+import { createCustomers } from '@potomac-solutions/kit/customers';
+import { createNotify, outbox } from '@potomac-solutions/kit/notify';
+import * as accountPages from './src/account.js';
+import { createAdmin } from './src/admin.js';
 import { createNotices } from '@potomac-solutions/kit/notice';
 import { diskFiles } from '@potomac-solutions/kit/files';
 import { createShowroom } from './src/showroom.js';
@@ -22,7 +26,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const components = join(here, 'src', 'components');
 const money = (cents) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showroom.db'), photos = join(process.env.DATA_DIR ?? here, 'photos'), cache = true, secret = process.env.SESSION_SECRET, now, holdMs, files , staffCost } = {}) {
+export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showroom.db'), photos = join(process.env.DATA_DIR ?? here, 'photos'), cache = true, secret = process.env.SESSION_SECRET, now = Date.now, holdMs, files, staffCost, publicUrl = process.env.PUBLIC_URL ?? '' } = {}) {
   if (!secret) {
     if (process.env.NODE_ENV === 'production') throw new Error('Set SESSION_SECRET.');
     secret = 'showroom-development-only';
@@ -38,14 +42,29 @@ export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showr
   // The people who run the shop: an owner and the staff they invite (the kit's staff module), in the
   // shop's own log; their pages and routes are the kit's too.
   const production = process.env.NODE_ENV === 'production';
+  // Customers who make an account (kit/customers), in the shop's own log.
+  const customers = createCustomers({ store: room.store, secure: production, now, ...(staffCost ? { cost: staffCost } : {}) });
+  // Email goes to an outbox the owner can read: this demo sends nothing for real.
+  const mail = outbox();
+  const notify = createNotify({
+    send: mail.send,
+    templates: {
+      reset: ({ name, link }) => ({ subject: `Reset your ${shop.name} password`, body: `Hi ${name},\n\nThis link sets a new password. It works once, for an hour:\n${link}\n\nIf it wasn’t you, ignore this email.` }),
+      bought: ({ name, title, price, link }) => ({ subject: `It’s yours: ${title}`, body: `Hi ${name},\n\nYou bought ${title} for ${price} (test mode).\n${link}\n\n${shop.pickup}` }),
+    },
+  });
+  const origin = (req) => publicUrl || `http://${req.headers.host ?? 'localhost'}`;
+  const proxies = Number(process.env.TRUST_PROXIES ?? 0);
   const staff = createStaff({ store: room.store, secure: production, ...(staffCost ? { cost: staffCost } : {}) });
   // A message in an address shows only if the server signed it (kit/notice), so a link can't put
   // its own words in a page's alert.
   const notices = createNotices({ secret });
-  const pages = staffPages({ staff, notices, proxies: Number(process.env.TRUST_PROXIES ?? 0), home: '/back', business: shop.name, secure: production, render: (res, title, body) => page(res, zubra.page(), title, body) });
+  const pages = staffPages({ staff, notices, proxies, home: '/admin', business: shop.name, secure: production, render: (res, title, body) => page(res, zubra.page(), title, body) });
   const send = (res, status, html) => (res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' }), res.end(html));
   const back = (res, location) => (res.writeHead(303, { location: notices.sign(location) }), res.end());
-  const page = (res, p, title, body) => send(res, 200, p.finish(layout({ title, shop, body })));
+  const page = (res, p, title, body, { status = 200, ...options } = {}) => send(res, status, p.finish(layout({ title, shop, body, ...options })));
+  const admin = createAdmin({ room, customers, sent: mail.sent, now });
+  const downloadCsv = (res, name, text) => (res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${name}"`, 'cache-control': 'no-store' }), res.end(text));
   const note = (url) => {
     const problem = notices.read(url).problem;
     const done = notices.read(url).done;
@@ -64,14 +83,17 @@ export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showr
       return null;
     }
   }
-  const photo = (listing, i = 0, alt = '') => (listing.photos?.[i] ? `<img class="photo" src="/photos/${listing.photos[i]}" alt="${escape(alt)}" loading="lazy">` : `<div class="photo none">Photo coming</div>`);
-  const status = (p, listing, guest) => p.render('listing-status', { unit: room.unitKey(listing.key), me: guest?.pub ?? '', stateNow: listing.state === 'available' ? 'free' : listing.state === 'sold' ? 'taken' : 'held', byNow: listing.mine ? guest.pub : '', untilNow: listing.until, untilLabel: listing.until ? new Date(listing.until).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: shop.timeZone }) : '', now: Date.now(), timeZone: shop.timeZone });
+  const photo = (listing, i = 0, alt = '') => (listing.photos?.[i] ? `<img class="photo" src="/photos/${listing.photos[i]}" alt="${escape(alt)}" loading="lazy">` : `<div class="photo none">${listing.category ? `${escape(listing.category)} · ` : ''}Photo coming</div>`);
+  const status = (p, listing, guest) => p.render('listing-status', { unit: room.unitKey(listing.key), me: guest?.pub ?? '', stateNow: listing.state === 'available' ? 'free' : listing.state === 'sold' ? 'taken' : 'held', byNow: listing.mine ? guest?.pub ?? '' : '', untilNow: listing.until, untilLabel: listing.until ? new Date(listing.until).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: shop.timeZone }) : '', now: Date.now(), timeZone: shop.timeZone });
 
-  function floor(p, url, guest) {
-    return `<section><h1>On the shop floor</h1><p class="lede">${escape(shop.hours)}. Every piece is one of a kind: hold it till tomorrow, buy it here, or ask us about it.</p></section>
+  function floor(p, url, guest, account) {
+    const all = room.listings(guest);
+    const fresh = all.filter((listing) => listing.state !== 'sold').length;
+    return `<section class="hero"><h1>${escape(shop.short)}: one of a kind</h1><p class="lede">Antiques, vintage and consignment in ${escape(shop.town)}. ${fresh} pieces on the floor today. Hold one till tomorrow for free, buy it here, or ask us about it. ${escape(shop.hours)}.</p><div class="actions"><a class="go" href="#floor">See the floor</a>${account ? '<a class="button light" href="/account">Your holds and buys</a>' : '<a class="button light" href="/account/sign-up">Make an account</a>'}</div></section>
 ${note(url)}
-<ul class="grid">${room
-      .listings(guest?.pub)
+<section class="two"><div class="panel"><h2>How it works</h2><ol><li>Every piece is the only one. When it’s held or sold, every open page shows it at once.</li><li>Hold it free for ${shop.holdHours} hours with a name and a phone number, or buy it here.</li><li>${escape(shop.pickup)}</li></ol></div><div class="panel"><h2>Visit</h2><dl class="facts"><dt>Where</dt><dd>${escape(shop.town)}</dd><dt>Hours</dt><dd>${escape(shop.hours)}</dd></dl></div></section>
+<h2 id="floor">On the shop floor</h2>
+<ul class="grid">${[...all.filter((listing) => listing.state !== 'sold'), ...all.filter((listing) => listing.state === 'sold').slice(0, 6)]
       .map((listing) => `<li class="card">${photo(listing, 0, listing.title)}<h2><a href="/l/${listing.key}">${escape(listing.title)}</a></h2><p class="row"><strong>${money(listing.price)}</strong> ${status(p, listing, guest)}</p><p>${escape(listing.era)}</p></li>`)
       .join('')}</ul>`;
   }
@@ -104,6 +126,7 @@ ${form('ask', 'Ask about it', `${who}<label>Your question<textarea name="message
 ${note(url)}
 <form class="panel" method="post" action="/back/add" enctype="multipart/form-data"><h2>Add a piece</h2>
   <label>Title<input name="title" required></label><label>Price, in dollars<input name="price" inputmode="decimal" required></label>
+  <label>Category<select name="category">${shop.categories.map((one) => `<option>${escape(one)}</option>`).join('')}</select></label>
   <label>Era<input name="era"></label><label>Size<input name="size"></label><label>Condition<input name="condition"></label>
   <label>Description<textarea name="description" rows="3"></textarea></label>
   <label>Photos (up to four)<input name="photos" type="file" accept="image/png,image/jpeg,image/webp,image/avif" multiple></label>
@@ -126,9 +149,14 @@ ${note(url)}
         res.writeHead(200, { 'content-type': file.type, 'cache-control': 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' });
         return res.end(file.body);
       }
-      const guest = guests.ensure(req, res);
+      const account = customers.session(req);
+      const guest = { ...guests.ensure(req, res), customer: account?.customer };
       const who = staff.session(req);
       const inBack = staff.can(who, 'staff');
+      const owner = staff.can(who, 'owner');
+      const nav = { customer: account, staff: inBack };
+      const show = (p, title, body, options = {}) => page(res, p, title, body, { nav, ...options });
+      if (url.pathname.startsWith('/account') || url.pathname.startsWith('/admin')) res.setHeader('cache-control', 'no-store');
 
       if (req.method === 'POST') {
         // Every form is ours: another site's post is refused (the cookies are SameSite=Lax too).
@@ -140,8 +168,101 @@ ${note(url)}
           const [, key, what] = acting;
           const done = what === 'ask' ? await room.ask(key, form) : what === 'release' ? await room.release(guest, key) : await room[what](guest, key, form);
           if (!done.ok) return back(res, withProblem(`/l/${key}`, done));
+          if (what === 'buy') {
+            const listing = room.listing(key);
+            const email = String(form.get('email') ?? '').trim();
+            if (email) await notify.notify({ email }, 'bought', { name: String(form.get('name') ?? '').trim(), title: listing.title, price: money(listing.price), link: `${origin(req)}/l/${key}` });
+          }
           const said = { hold: 'It’s held for you until tomorrow. We’ll call if you don’t make it.', release: 'Let go. It’s back on the floor.', buy: `It’s yours. ${shop.pickup}`, ask: 'Sent. We’ll call you back.' }[what];
           return back(res, withDone(`/l/${key}`, said));
+        }
+        // A customer's account.
+        if (url.pathname.startsWith('/account/')) {
+          const p = zubra.page();
+          const problem = (words) => `<p class="notice" role="alert">${escape(words)}</p>`;
+          if (url.pathname === '/account/sign-up') {
+            const made = await customers.signUp({ email: form.get('email'), name: form.get('name'), password: form.get('password') });
+            if (made.error) return show(p, 'Make an account', accountPages.signUp({ problem: problem(made.error), form }), { status: 422 });
+            await room.claim(guest, made.customer);
+            res.setHeader('set-cookie', made.cookie);
+            return back(res, withDone('/account', 'Welcome. Your account is ready.'));
+          }
+          if (url.pathname === '/account/sign-in') {
+            const signed = await customers.signIn(form.get('email'), form.get('password'), { client: clientAddress(req, { proxies }) });
+            if (signed.error) return show(p, 'Sign in', accountPages.signIn({ problem: problem(signed.error === 'locked' ? 'Too many tries. Wait 15 minutes, or reset your password.' : 'That email and password don’t match.'), email: String(form.get('email') ?? '') }), { status: 401 });
+            await room.claim(guest, signed.customer);
+            res.setHeader('set-cookie', signed.cookie);
+            return back(res, '/account');
+          }
+          if (url.pathname === '/account/sign-out') {
+            res.setHeader('set-cookie', (await customers.signOut(req)).cookie);
+            return back(res, '/');
+          }
+          if (url.pathname === '/account/forgot') {
+            const email = String(form.get('email') ?? '').trim().toLowerCase();
+            const raw = await customers.resetToken(email);
+            const one = raw && customers.list().find((c) => c.email === email);
+            if (one) {
+              const link = `${origin(req)}/account/reset?token=${raw}`;
+              await notify.notify({ email: one.email }, 'reset', { name: one.name, link });
+              if (!production) console.log(`Password reset for ${one.email}: ${link}`);
+            }
+            return show(p, 'Reset your password', accountPages.forgot({ sent: true }));
+          }
+          if (url.pathname === '/account/reset') {
+            const raw = String(form.get('token') ?? '');
+            const reset = await customers.reset(raw, form.get('password'));
+            if (reset.error) return show(p, 'Choose a new password', accountPages.reset({ token: raw, problem: problem(reset.error), works: customers.peek(raw) }), { status: 422 });
+            res.setHeader('set-cookie', reset.cookie);
+            return back(res, withDone('/account', 'Your new password is saved.'));
+          }
+          if (url.pathname === '/account/profile') {
+            if (!account) return back(res, '/account/sign-in');
+            const renamed = await customers.rename(account.customer, form.get('name'));
+            return back(res, renamed.ok ? withDone('/account', 'Saved.') : withProblem('/account', renamed));
+          }
+          return send(res, 404, 'Not found');
+        }
+        // The admin's changes. Staff edit and sell pieces; owners change customers and settings.
+        if (url.pathname.startsWith('/admin/')) {
+          if (!inBack) return back(res, '/admin');
+          const piece = url.pathname.match(/^\/admin\/inventory\/(l[a-z0-9]+)\/(edit|sold|release)$/);
+          if (piece) {
+            const [, key, what] = piece;
+            const done = what === 'edit' ? await room.update(key, form) : what === 'sold' ? await room.soldInShop(key) : await room.release(null, key, { staff: true });
+            if (!done.ok) return back(res, withProblem(`/admin/inventory/${key}`, done));
+            const title = room.listing(key).title;
+            await room.audit(who, what === 'edit' ? `edited ${title}` : what === 'sold' ? `sold ${title} in the shop` : `let the hold on ${title} go`, key);
+            return back(res, withDone(`/admin/inventory/${key}`, what === 'edit' ? 'Saved.' : what === 'sold' ? 'Sold in the shop.' : 'The hold is let go.'));
+          }
+          if (url.pathname === '/admin/questions/answered') {
+            const done = await room.answered(String(form.get('key') ?? ''));
+            if (done.ok) await room.audit(who, 'answered a question');
+            return back(res, done.ok ? withDone('/admin/questions', 'Marked answered.') : withProblem('/admin/questions', done));
+          }
+          if (!owner) return back(res, '/admin');
+          const customerAction = url.pathname.match(/^\/admin\/customers\/(c[a-z0-9]+)\/(disabled|reset)$/);
+          const one = customerAction && customers.get(customerAction[1]);
+          if (one && customerAction[2] === 'disabled') {
+            const off = form.get('disabled') === 'yes';
+            await customers.setDisabled(one.customer, off);
+            await room.audit(who, `${off ? 'turned off' : 'turned back on'} ${one.name}’s account`, one.customer);
+            return back(res, withDone(`/admin/customers/${one.customer}`, off ? 'Turned off and signed out everywhere.' : 'Turned back on.'));
+          }
+          if (one) {
+            const raw = await customers.resetToken(one.email);
+            if (!raw) return back(res, withProblem(`/admin/customers/${one.customer}`, { error: 'That account is turned off.' }));
+            await notify.notify({ email: one.email }, 'reset', { name: one.name, link: `${origin(req)}/account/reset?token=${raw}` });
+            await room.audit(who, `emailed ${one.name} a reset link`, one.customer);
+            return back(res, withDone(`/admin/customers/${one.customer}`, 'Sent. It’s in the outbox.'));
+          }
+          if (url.pathname === '/admin/settings') {
+            const saved = await room.setShop(form);
+            if (saved.error) return back(res, withProblem('/admin/settings', saved));
+            await room.audit(who, 'changed the hours or pickup words');
+            return back(res, withDone('/admin/settings', 'Saved.'));
+          }
+          return send(res, 404, 'Not found');
         }
         // Sign-in, links, people and passwords.
         if (await pages.handle(req, res, url, form)) return;
@@ -149,15 +270,18 @@ ${note(url)}
           if (!inBack) return back(res, '/back');
           if (url.pathname === '/back/add') {
             const done = await room.add(form);
+            if (done.ok) await room.audit(who, `added ${String(form.get('title') ?? '').trim()}`, done.key);
             return back(res, done.ok ? withDone(`/l/${done.key}`, 'It’s on the floor.') : withProblem('/back', done));
           }
           const key = String(form.get('key') ?? '');
           if (url.pathname === '/back/sold') {
             const done = await room.soldInShop(key);
+            if (done.ok) await room.audit(who, `sold ${done.listing.title} in the shop`, key);
             return back(res, done.ok ? withDone('/back', `${done.listing.title}: sold.`) : withProblem('/back', done));
           }
           if (url.pathname === '/back/release') {
             const done = await room.release(null, key, { staff: true });
+            if (done.ok) await room.audit(who, `let the hold on ${room.listing(key)?.title} go`, key);
             return back(res, done.ok ? withDone('/back', 'The hold is let go.') : withProblem('/back', done));
           }
         }
@@ -167,13 +291,51 @@ ${note(url)}
 
       if (await pages.handle(req, res, url, null)) return;
       const p = zubra.page();
-      if (url.pathname === '/') return page(res, p, 'The shop floor', floor(p, url, guest));
+      if (url.pathname === '/') return show(p, 'The shop floor', floor(p, url, guest, account), { here: '/' });
       const showing = url.pathname.match(/^\/l\/(l[a-z0-9]+)$/);
-      const listing = showing && room.listing(showing[1], guest.pub);
-      if (listing) return page(res, p, listing.title, listingPage(p, url, guest, listing));
+      const listing = showing && room.listing(showing[1], guest);
+
+      // A customer's pages.
+      if (url.pathname === '/account') return account ? show(p, 'Your account', accountPages.account({ room, guest, customer: account, said: note(url) }), { here: '/account' }) : back(res, '/account/sign-in');
+      if (url.pathname === '/account/sign-in') return account ? back(res, '/account') : show(p, 'Sign in', accountPages.signIn({ problem: note(url) }), { here: '/account/sign-in' });
+      if (url.pathname === '/account/sign-up') return account ? back(res, '/account') : show(p, 'Make an account', accountPages.signUp());
+      if (url.pathname === '/account/forgot') return show(p, 'Reset your password', accountPages.forgot());
+      if (url.pathname === '/account/reset') {
+        const raw = url.searchParams.get('token') ?? '';
+        return show(p, 'Choose a new password', accountPages.reset({ token: raw, works: customers.peek(raw) }));
+      }
+
+      // The admin: staff only; reports, settings and the outbox for owners.
+      if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
+        if (!inBack) return show(p, 'Sign in', pages.signIn(url));
+        const bar = pages.bar(who);
+        const said = note(url);
+        const wide = { wide: true, here: '/admin' };
+        if (url.pathname === '/admin') return show(p, 'Overview', admin.dashboard({ who, owner, bar }), wide);
+        if (url.pathname === '/admin/inventory') return show(p, 'Inventory', admin.inventory({ url, owner, bar }), wide);
+        if (url.pathname === '/admin/inventory.csv') return downloadCsv(res, 'inventory.csv', admin.inventoryCsv(url));
+        const piece = url.pathname.match(/^\/admin\/inventory\/(l[a-z0-9]+)$/);
+        const one = piece && room.listing(piece[1]);
+        if (one) return show(p, one.title, admin.piece({ listing: one, owner, bar, said }), wide);
+        if (url.pathname === '/admin/sales') return show(p, 'Sales', admin.sales({ url, owner, bar }), wide);
+        if (url.pathname === '/admin/sales.csv') return downloadCsv(res, 'sales.csv', admin.salesCsv());
+        if (url.pathname === '/admin/questions') return show(p, 'Questions', admin.questions({ owner, bar, said }), wide);
+        if (url.pathname === '/admin/customers') return show(p, 'Customers', admin.customers({ url, owner, bar }), wide);
+        if (url.pathname === '/admin/customers.csv') return downloadCsv(res, 'customers.csv', admin.customersCsv());
+        const oneCustomer = url.pathname.match(/^\/admin\/customers\/(c[a-z0-9]+)$/);
+        const person = oneCustomer && customers.get(oneCustomer[1]);
+        if (person) return show(p, person.name, admin.customer({ one: person, owner, bar, said }), wide);
+        if (['/admin/reports', '/admin/reports.csv', '/admin/settings', '/admin/outbox'].includes(url.pathname) && !owner) return show(p, 'Owners only', '<section><h1>Owners only</h1><p class="lede">Ask an owner to see this page.</p><p><a href="/admin">Back to the overview</a></p></section>', { status: 403 });
+        if (url.pathname === '/admin/reports') return show(p, 'Reports', admin.reports({ url, owner, bar }), wide);
+        if (url.pathname === '/admin/reports.csv') return downloadCsv(res, 'sales-by-period.csv', admin.reportCsv(url));
+        if (url.pathname === '/admin/settings') return show(p, 'Settings', admin.settings({ owner, bar, said }), wide);
+        if (url.pathname === '/admin/outbox') return show(p, 'Outbox', admin.outbox({ owner, bar }), wide);
+        return send(res, 404, 'Not found');
+      }
+      if (listing) return show(p, listing.title, listingPage(p, url, guest, listing));
       if (url.pathname === '/back') {
-        if (!inBack) return page(res, p, 'Sign in', pages.signIn(url));
-        return page(res, p, 'The back office', pages.bar(who) + backOffice(url));
+        if (!inBack) return show(p, 'Sign in', pages.signIn(url));
+        return show(p, 'The back office', pages.bar(who) + backOffice(url));
       }
       send(res, 404, 'Not found');
     } catch (error) {
@@ -183,7 +345,7 @@ ${note(url)}
     }
   });
   server.on('close', () => clearInterval(sweeper));
-  return Object.assign(server, { room, staff });
+  return Object.assign(server, { room, staff, customers, sent: mail.sent });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
