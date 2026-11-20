@@ -1,6 +1,6 @@
 # Showroom
 
-Unique stock, for a shop where every piece is one of a kind: antiques, consignment, vintage, a gallery, used gear. Each piece has its photos and its story; a guest can hold it till tomorrow, buy it online, or ask about it, and every open page shows at once when it's held or sold. A Potomac Solutions platform, built on the [kit](https://github.com/Potomac-Solutions/kit) and [Zubra](https://github.com/journey-to-code-org/zubra).
+Unique stock, for a shop where every piece is one of a kind: antiques, consignment, vintage, a gallery, used gear. Each piece has its photos and its story; a guest can hold it till tomorrow, buy it online, or ask about it, and every open page shows at once when it's held or sold. A Potomac Solutions platform, built on the [kit](https://github.com/Potomac-Solutions/kit) and [Zubra](https://github.com/zubra-js/zubra).
 
 The shop it starts with, Old Depot Antiques & Consignment in Frostburg, Maryland, is made up. Nothing here is really for sale, and payments are in test mode.
 
