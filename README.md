@@ -79,6 +79,17 @@ The admin, customer accounts and reports (`test/admin.test.js`, over plain HTTP)
 
 Every behaviour was broken on purpose once to check a test fails (24 of 26 caught). The two that can't be: a page may write nothing because every collection is the server's (the check stays as a safety belt), and a photo address must be a hash because the kit's `files` already refuses any other name.
 
+## How it looks
+
+- **The landing page** (`/`) is photo-led: a full-screen photograph with **See the floor**, the promise to hold a piece beside a photograph, the floor as photo cards with price and live status, the depot's story over a photograph, three steps, and where to find it. Its words are in `src/shop.js` (`site`); `src/site.js` lays them out.
+- **A piece with no photograph of its own** shows a photograph of its kind of thing (by category), marked "Photo coming", so the floor never looks empty and nobody mistakes the picture for the piece.
+- **Photographs** for the page are files in `public/photos/` (`hero`, `hold`, `depot`, and one per category), as `.jpg` or `.webp`. Replace a file and restart. The ones here were generated for this made-up shop; see `public/photos/README.md`. A piece's own photographs are still the ones the back office uploads.
+- **Styles** are files in `public/`: `base.css`, `site.css` (the landing page), `customer.css` (a piece, the account) and `app.css` (the back office and the admin). `src/assets.js` serves them, the photographs and the two typefaces (Playfair Display and Lato, from `@fontsource`, self-hosted) at `/assets/…`, cached by a hash of their bytes.
+- **The staff's side** has its own page frame (`src/shell.js`): a sidebar at a desk; on a phone a bar on top, tabs along the bottom and the sidebar as a sheet. Light or dark follows the device, with a switch that remembers. Unanswered questions are counted beside **Questions**.
+- **Tables** become cards on a phone (`src/tables.js`).
+- **Search engines** are asked not to list the page, because the shop is made up. Set `listed: true` in `src/shop.js` for a real one.
+- **Checks.** With the demo running, `npm run design-check` opens every page in a browser at five widths, light and dark.
+
 ## Not yet
 
 - More of the owner's admin: the shop's name and how long a hold lasts are still in `src/shop.js` (hours and pickup words are editable). Changing a piece's photos after it's listed.

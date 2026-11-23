@@ -40,13 +40,8 @@ export function createAdmin({ room, customers, sent, now = Date.now }) {
   };
   const daysOnFloor = (sale) => Math.max(0, Math.round((sale.at - (sale.listing.added ?? sale.at)) / DAY));
 
-  function nav(here, owner) {
-    const link = (href, words) => `<a href="${href}"${here === href ? ' aria-current="page"' : ''}>${words}</a>`;
-    return `<nav class="admin-nav" aria-label="Admin"><small>Shop</small>${link('/admin', 'Overview')}${link('/admin/inventory', 'Inventory')}${link('/admin/sales', 'Sales')}${link('/admin/questions', 'Questions')}${link('/admin/customers', 'Customers')}${link('/back', 'The back office')}${
-      owner ? `<small>Owner</small>${link('/admin/reports', 'Reports')}${link('/admin/settings', 'Settings')}${link('/staff/people', 'Staff')}${link('/admin/outbox', 'Outbox')}` : ''
-    }</nav>`;
-  }
-  const frame = (here, owner, bar, body) => `<div class="admin">${nav(here, owner)}<div class="admin-body">${bar}${body}</div></div>`;
+  // Each page used to wrap itself in the admin's navigation; src/shell.js does that now.
+  const frame = (_here, _owner, _bar, body) => body;
 
   function filterInventory(url) {
     const q = (url.searchParams.get('q') ?? '').trim().toLowerCase().slice(0, 80);
@@ -62,10 +57,9 @@ export function createAdmin({ room, customers, sent, now = Date.now }) {
       ? `<div class="table-wrap"><table><thead><tr><th scope="col">Piece</th><th scope="col">Sold</th><th scope="col">How</th><th scope="col">To</th><th scope="col" class="num">Price</th></tr></thead><tbody>${list
           .map((sale) => `<tr><td><a href="/admin/inventory/${sale.key}">${escape(sale.listing.title)}</a><br><small class="muted">${escape(sale.listing.category ?? 'Other')} · ${daysOnFloor(sale)} days on the floor</small></td><td>${dateTime(sale.at)}</td><td>${escape(sale.how)}</td><td>${sale.name ? escape(sale.name) : '<span class="muted">Walk-in</span>'}${sale.customer ? ` <a class="muted" href="/admin/customers/${escape(sale.customer)}">(account)</a>` : ''}</td><td class="num">${money(sale.cents)}</td></tr>`)
           .join('')}</tbody></table></div>`
-      : '<p>None.</p>';
+      : '<p class="muted">Nothing here.</p>';
 
   return {
-    nav,
 
     dashboard({ who, owner, bar }) {
       const at = now();
@@ -85,7 +79,7 @@ export function createAdmin({ room, customers, sent, now = Date.now }) {
         '/admin',
         owner,
         bar,
-        `<section><h1>Overview</h1><p class="lede">${escape(shop.name)}. Good to see you, ${escape(who.name.split(' ')[0])}.</p></section>
+        `<section class="page-head"><h1>Overview</h1><p class="lede">${escape(shop.name)}. Good to see you, ${escape(who.name.split(' ')[0])}.</p></section>
 <div class="tiles">
   <div class="tile"><span>Sales, last 30 days</span><strong>${money(revenue)}</strong><small>${earlier ? `${revenue >= earlier ? '▲' : '▼'} ${Math.abs(Math.round(((revenue - earlier) / earlier) * 100))}% on the 30 days before` : `${last30.length} pieces`}</small></div>
   <div class="tile"><span>Pieces sold, last 30 days</span><strong>${last30.length}</strong><small>${avgDays} days on the floor, on average</small></div>
@@ -110,9 +104,9 @@ export function createAdmin({ room, customers, sent, now = Date.now }) {
         '/admin/inventory',
         owner,
         bar,
-        `<section><h1>Inventory</h1><p class="lede">${list.length} piece${list.length === 1 ? '' : 's'}, ${money(totals(list, { amount: (listing) => listing.price }).amount)} at asking prices. <a href="/back">Add a piece</a> in the back office.</p></section>
+        `<section class="page-head"><h1>Inventory</h1><p class="lede">${list.length} piece${list.length === 1 ? '' : 's'}, ${money(totals(list, { amount: (listing) => listing.price }).amount)} at asking prices. <a href="/back">Add a piece</a> in the back office.</p></section>
 <form class="panel filters" method="get" action="/admin/inventory">
-  <label>Search<input name="q" value="${escape(url.searchParams.get('q') ?? '')}" placeholder="Title, era or code"></label>
+  <label class="grow">Search<input name="q" type="search" value="${escape(url.searchParams.get('q') ?? '')}" placeholder="Title, era or code"></label>
   <label>State<select name="state">${option('', 'Any', url.searchParams.get('state') ?? '')}${Object.entries(STATE).map(([value, words]) => option(value, words, url.searchParams.get('state'))).join('')}</select></label>
   <label>Category<select name="category">${option('', 'Any', url.searchParams.get('category') ?? '')}${shop.categories.map((one) => option(one, one, url.searchParams.get('category'))).join('')}</select></label>
   <button type="submit">Show</button>
@@ -146,7 +140,7 @@ export function createAdmin({ room, customers, sent, now = Date.now }) {
         '/admin/inventory',
         owner,
         bar,
-        `<section><a href="/admin/inventory">All inventory</a><h1>${escape(listing.title)}</h1><p class="lede">${escape(listing.key)} · ${badge(listing.state)} · on the floor since ${dateTime(listing.added)} · <a href="/l/${listing.key}">as guests see it</a></p></section>
+        `<section class="page-head"><a class="back" href="/admin/inventory">All inventory</a><h1>${escape(listing.title)}</h1><p class="lede">${escape(listing.key)} · ${badge(listing.state)} · on the floor since ${dateTime(listing.added)} · <a href="/l/${listing.key}">as guests see it</a></p></section>
 ${said}
 <section class="two">
   <div class="panel"><h2>${listing.state === 'sold' ? 'Sold' : listing.state === 'held' ? 'On hold' : 'Available'}</h2>${
@@ -155,7 +149,7 @@ ${said}
             : `<dl><dt>How</dt><dd>${escape(buyer?.how ?? '')}</dd><dt>Who</dt><dd>${escape(buyer?.name || 'Walk-in')}${buyer?.customer ? ` <a href="/admin/customers/${escape(buyer.customer)}">(account)</a>` : ''}</dd><dt>Phone</dt><dd>${escape(buyer?.phone || '—')}</dd><dt>${listing.state === 'held' ? 'Until' : 'When'}</dt><dd>${dateTime(listing.state === 'held' ? listing.until : buyer?.at)}</dd>${listing.state === 'sold' ? `<dt>For</dt><dd>${money(buyer?.cents ?? listing.price)}</dd>` : ''}</dl>`
         }
   <div class="filters">${listing.state === 'sold' ? '' : `<form method="post" action="/admin/inventory/${listing.key}/sold"><button type="submit">Sold in the shop</button></form>`}${listing.state === 'held' ? `<form method="post" action="/admin/inventory/${listing.key}/release"><button class="button light" type="submit">Let the hold go</button></form>` : ''}</div></div>
-  <div class="panel"><h2>Questions about it</h2>${questions.length ? `<ul>${questions.map((one) => `<li>${escape(one.message)}<br><small class="muted">${escape(one.name)}, ${escape(one.phone)} · ${dateTime(one.at)}${one.answered ? ' · answered' : ''}</small></li>`).join('')}</ul>` : '<p>None.</p>'}</div>
+  <div class="panel"><h2>Questions about it</h2>${questions.length ? `<ul>${questions.map((one) => `<li>${escape(one.message)}<br><small class="muted">${escape(one.name)}, ${escape(one.phone)} · ${dateTime(one.at)}${one.answered ? ' · answered' : ''}</small></li>`).join('')}</ul>` : '<p class="muted">Nothing here.</p>'}</div>
 </section>
 <form class="panel" method="post" action="/admin/inventory/${listing.key}/edit"><h2>Edit</h2>
   <div class="two"><label>Title<input name="title" required maxlength="120" value="${escape(listing.title)}"></label><label>Price ($)<input name="price" inputmode="decimal" required value="${(listing.price / 100).toFixed(2)}"></label></div>
@@ -175,7 +169,7 @@ ${said}
         '/admin/sales',
         owner,
         bar,
-        `<section><h1>Sales</h1><p class="lede">${list.length} pieces, ${money(totals(list, { amount: (sale) => sale.cents }).amount)}.</p></section>
+        `<section class="page-head"><h1>Sales</h1><p class="lede">${list.length} pieces, ${money(totals(list, { amount: (sale) => sale.cents }).amount)}.</p></section>
 <form class="panel filters" method="get" action="/admin/sales"><label>How<select name="how">${option('', 'Online and in the shop', how)}${option('online', 'Online', how)}${option('in the shop', 'In the shop', how)}</select></label><button type="submit">Show</button><a class="button light" href="/admin/sales.csv">Download CSV</a></form>
 <section class="panel">${saleRows(list.slice((page - 1) * PAGE, page * PAGE))}${pager(url, '/admin/sales', list.length, page)}</section>`,
       );
@@ -200,9 +194,9 @@ ${said}
         '/admin/questions',
         owner,
         bar,
-        `<section><h1>Questions</h1><p class="lede">${list.filter((one) => !one.answered).length} to call back, ${list.filter((one) => one.answered).length} answered.</p></section>
+        `<section class="page-head"><h1>Questions</h1><p class="lede">${list.filter((one) => !one.answered).length} to call back, ${list.filter((one) => one.answered).length} answered.</p></section>
 ${said}
-<section class="panel">${list.length ? list.map((one) => `<article class="stack" style="border-top:1px solid var(--border);padding-top:0.75rem"><p><strong><a href="/admin/inventory/${escape(one.listing)}">${escape(one.title)}</a></strong> ${one.answered ? '<span class="badge sold">Answered</span>' : '<span class="badge held">To call back</span>'} <small class="muted">${dateTime(one.at)}</small></p><p>${escape(one.message)}</p><p class="muted">${escape(one.name)}, ${escape(one.phone)}</p>${one.answered ? '' : `<form method="post" action="/admin/questions/answered"><input type="hidden" name="key" value="${escape(one.key)}"><button class="button light" type="submit">Mark answered</button></form>`}</article>`).join('') : '<p>No questions yet.</p>'}</section>`,
+<section class="panel">${list.length ? list.map((one) => `<article class="message"><p><strong><a href="/admin/inventory/${escape(one.listing)}">${escape(one.title)}</a></strong> ${one.answered ? '<span class="badge sold">Answered</span>' : '<span class="badge held">To call back</span>'} <small class="muted">${dateTime(one.at)}</small></p><p>${escape(one.message)}</p><p class="muted">${escape(one.name)}, ${escape(one.phone)}</p>${one.answered ? '' : `<form method="post" action="/admin/questions/answered"><input type="hidden" name="key" value="${escape(one.key)}"><button class="button light" type="submit">Mark answered</button></form>`}</article>`).join('') : '<p>No questions yet.</p>'}</section>`,
       );
     },
 
@@ -215,8 +209,8 @@ ${said}
         '/admin/customers',
         owner,
         bar,
-        `<section><h1>Customers</h1><p class="lede">${customers.list().length} with accounts. Anyone can also hold or buy without one.</p></section>
-<form class="panel filters" method="get" action="/admin/customers"><label>Search<input name="q" value="${escape(url.searchParams.get('q') ?? '')}" placeholder="Name or email"></label><button type="submit">Show</button><a class="button light" href="/admin/customers.csv">Download CSV</a></form>
+        `<section class="page-head"><h1>Customers</h1><p class="lede">${customers.list().length} with accounts. Anyone can also hold or buy without one.</p></section>
+<form class="panel filters" method="get" action="/admin/customers"><label class="grow">Search<input name="q" type="search" value="${escape(url.searchParams.get('q') ?? '')}" placeholder="Name or email"></label><button type="submit">Show</button><a class="button light" href="/admin/customers.csv">Download CSV</a></form>
 <section class="panel"><div class="table-wrap"><table><thead><tr><th scope="col">Customer</th><th scope="col">Joined</th><th scope="col" class="num">Bought</th><th scope="col" class="num">Spent</th></tr></thead><tbody>${list
           .slice((page - 1) * PAGE, page * PAGE)
           .map((one) => {
@@ -245,13 +239,13 @@ ${said}
         '/admin/customers',
         owner,
         bar,
-        `<section><a href="/admin/customers">All customers</a><h1>${escape(one.name)}</h1><p class="lede">${escape(one.email)} · joined ${dateTime(one.at)}${one.disabled ? ' · <span class="badge off">Turned off</span>' : ''}</p></section>
+        `<section class="page-head"><a class="back" href="/admin/customers">All customers</a><h1>${escape(one.name)}</h1><p class="lede">${escape(one.email)} · joined ${dateTime(one.at)}${one.disabled ? ' · <span class="badge off">Turned off</span>' : ''}</p></section>
 ${said}
 <div class="tiles"><div class="tile"><span>Pieces bought</span><strong>${sales.length}</strong></div><div class="tile"><span>Spent</span><strong>${money(totals(sales, { amount: (sale) => sale.cents }).amount)}</strong></div><div class="tile"><span>Collects</span><strong>${escape(breakdown(sales, { key: (sale) => sale.listing.category ?? 'Other' })[0]?.key ?? '—')}</strong></div></div>
 <section class="panel"><h2>Bought</h2>${saleRows(sales)}</section>
 ${
   owner
-    ? `<section class="panel"><h2>Account</h2><p>Turning an account off signs it out everywhere; what it bought stays.</p><div class="filters"><form method="post" action="/admin/customers/${escape(one.customer)}/disabled"><input type="hidden" name="disabled" value="${one.disabled ? 'no' : 'yes'}"><button type="submit" class="${one.disabled ? '' : 'button light'}">${one.disabled ? 'Turn back on' : 'Turn off'}</button></form>${one.disabled ? '' : `<form method="post" action="/admin/customers/${escape(one.customer)}/reset"><button class="button light" type="submit">Email a reset link</button></form>`}</div></section>`
+    ? `<section class="panel"><h2>Account</h2><p>Turning an account off signs it out everywhere; what it bought stays.</p><div class="filters">${one.disabled ? `<form method="post" action="/admin/customers/${escape(one.customer)}/disabled"><input type="hidden" name="disabled" value="no"><button type="submit">Turn back on</button></form>` : `<details class="confirm"><summary>Turn this account off…</summary><div class="sure"><p><strong>${escape(one.name)} will be signed out everywhere and won’t be able to sign in.</strong> What they have with the shop stays, and an owner can turn the account back on.</p><form method="post" action="/admin/customers/${escape(one.customer)}/disabled"><input type="hidden" name="disabled" value="yes"><button type="submit">Yes, turn it off</button></form></div></details>`}${one.disabled ? '' : `<form method="post" action="/admin/customers/${escape(one.customer)}/reset"><button class="button light" type="submit">Email a reset link</button></form>`}</div></section>`
     : ''
 }`,
       );
@@ -284,8 +278,8 @@ ${
         '/admin/reports',
         owner,
         bar,
-        `<section><h1>Reports</h1><p class="lede">${r.label}, by ${r.by}, in the shop’s time (${escape(zone)}). Counted on the day each piece sold.</p></section>
-<div class="panel filters" role="group" aria-label="Range">${Object.entries(RANGES).map(([key, one]) => `<a class="button${key === r.key ? '' : ' light'}" href="?range=${key}"${key === r.key ? ' aria-current="true"' : ''}>${one.label}</a>`).join('')}</div>
+        `<section class="page-head"><h1>Reports</h1><p class="lede">${r.label}, by ${r.by}, in the shop’s time (${escape(zone)}). Counted on the day each piece sold.</p></section>
+<div class="segments" role="group" aria-label="Range">${Object.entries(RANGES).map(([key, one]) => `<a href="?range=${key}"${key === r.key ? ' aria-current="true"' : ''}>${one.label}</a>`).join('')}</div>
 <div class="tiles">
   <div class="tile"><span>Sales</span><strong>${money(sum.amount)}</strong></div>
   <div class="tile"><span>Pieces sold</span><strong>${sum.count}</strong></div>
@@ -295,8 +289,8 @@ ${
 </div>
 <section class="panel"><h2>Sales by ${r.by}</h2>${barChart(r.buckets.map((b) => ({ label: short(b.start, r.by), value: b.amount, tip: `${short(b.start, r.by)}: ${money(b.amount)} from ${b.count} pieces` })), { name: 'Sales', format: money })}<p><a class="button light" href="/admin/reports.csv?range=${r.key}">Download CSV</a></p></section>
 <section class="two">
-  <div class="panel"><h2>By category</h2>${byCategory.length ? rankBars(byCategory.map((row) => ({ label: row.key, value: row.amount })), { format: money }) : '<p>None.</p>'}</div>
-  <div class="panel"><h2>Online or in the shop</h2>${byHow.length ? rankBars(byHow.map((row) => ({ label: row.key, value: row.amount })), { format: money }) : '<p>None.</p>'}<h2>How long pieces took to sell</h2>${rankBars(ages)}</div>
+  <div class="panel"><h2>By category</h2>${byCategory.length ? rankBars(byCategory.map((row) => ({ label: row.key, value: row.amount })), { format: money }) : '<p class="muted">Nothing here.</p>'}</div>
+  <div class="panel"><h2>Online or in the shop</h2>${byHow.length ? rankBars(byHow.map((row) => ({ label: row.key, value: row.amount })), { format: money }) : '<p class="muted">Nothing here.</p>'}<h2>How long pieces took to sell</h2>${rankBars(ages)}</div>
 </section>
 <section class="panel"><h2>On the floor more than 90 days</h2>${stale.length ? `<p class="muted">Worth a new photo, a better spot, or a lower price.</p><div class="table-wrap"><table><tbody>${stale.slice(0, 12).map((listing) => `<tr><td><a href="/admin/inventory/${listing.key}">${escape(listing.title)}</a></td><td>${escape(listing.category ?? 'Other')}</td><td>since ${dateTime(listing.added)}</td><td class="num">${money(listing.price)}</td></tr>`).join('')}</tbody></table></div>` : '<p>Nothing has sat that long.</p>'}</section>`,
       );
@@ -316,7 +310,7 @@ ${
         '/admin/settings',
         owner,
         bar,
-        `<section><h1>Settings</h1><p class="lede">The words guests see. Prices and descriptions are on each piece in the <a href="/admin/inventory">inventory</a>.</p></section>
+        `<section class="page-head"><h1>Settings</h1><p class="lede">The words guests see. Prices and descriptions are on each piece in the <a href="/admin/inventory">inventory</a>.</p></section>
 ${said}
 <form class="panel" method="post" action="/admin/settings"><h2>The shop</h2>
 <label>Hours<input name="hours" maxlength="120" required value="${escape(shop.hours)}"></label>
@@ -332,8 +326,8 @@ ${said}
         '/admin/outbox',
         owner,
         bar,
-        `<section><h1>Outbox</h1><p class="lede">This demo sends no real email. What it would have sent since the server started is here, newest first.</p></section>
-<section class="panel">${list.length ? list.map((message) => `<article class="stack" style="border-top:1px solid var(--border);padding-top:0.75rem"><p><strong>${escape(message.subject)}</strong><br><small class="muted">To ${escape(message.to)}</small></p><pre style="white-space:pre-wrap;margin:0">${escape(message.body)}</pre></article>`).join('') : '<p>Nothing sent yet.</p>'}</section>`,
+        `<section class="page-head"><h1>Outbox</h1><p class="lede">This demo sends no real email. What it would have sent since the server started is here, newest first.</p></section>
+<section class="panel">${list.length ? list.map((message) => `<article class="message"><p><strong>${escape(message.subject)}</strong><br><small class="muted">To ${escape(message.to)}</small></p><pre>${escape(message.body)}</pre></article>`).join('') : '<p>Nothing sent yet.</p>'}</section>`,
       );
     },
   };

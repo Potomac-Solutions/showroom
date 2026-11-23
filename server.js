@@ -21,8 +21,15 @@ import { createNotices } from '@potomac-solutions/kit/notice';
 import { diskFiles } from '@potomac-solutions/kit/files';
 import { createShowroom } from './src/showroom.js';
 import { layout, escape } from './src/layout.js';
+import { shell } from './src/shell.js';
+import { landing } from './src/site.js';
+import { photo as stock } from './src/assets.js';
+import { cards } from './src/tables.js';
+import { serveAsset } from './src/assets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+/** The staff's pages, for marking where they are in the sidebar. */
+const STAFF_LINKS = ['/back', '/admin', '/admin/inventory', '/admin/sales', '/admin/questions', '/admin/customers', '/admin/reports', '/admin/settings', '/admin/outbox', '/staff/people'];
 const components = join(here, 'src', 'components');
 const money = (cents) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -59,10 +66,13 @@ export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showr
   // A message in an address shows only if the server signed it (kit/notice), so a link can't put
   // its own words in a page's alert.
   const notices = createNotices({ secret });
-  const pages = staffPages({ staff, notices, proxies, home: '/admin', business: shop.name, secure: production, render: (res, title, body) => page(res, zubra.page(), title, body) });
+  const pages = staffPages({ staff, notices, proxies, home: '/admin', business: shop.name, secure: production, // A signed-in member of staff sees the kit's pages (people, their password) inside the staff shell;
+    // signing in and accepting an invite are a narrow card on the shop's own page.
+    render: (res, title, body) => (staff.can(res.who, 'staff') ? staffPage(res, zubra.page(), title, body, { here: title === 'People' ? '/staff/people' : '' }) : page(res, zubra.page(), title, `<div class="auth">${body}</div>`)) });
   const send = (res, status, html) => (res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' }), res.end(html));
   const back = (res, location) => (res.writeHead(303, { location: notices.sign(location) }), res.end());
   const page = (res, p, title, body, { status = 200, ...options } = {}) => send(res, status, p.finish(layout({ title, shop, body, ...options })));
+  const staffPage = (res, p, title, body, { status = 200, ...options } = {}) => send(res, status, p.finish(shell({ title, shop, body: cards(body), who: res.who, owner: staff.can(res.who, 'owner'), waiting: room.enquiries().filter((one) => !one.answered).length, ...options })));
   const admin = createAdmin({ room, customers, sent: mail.sent, now });
   const downloadCsv = (res, name, text) => (res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'content-disposition': `attachment; filename="${name}"`, 'cache-control': 'no-store' }), res.end(text));
   const note = (url) => {
@@ -83,19 +93,18 @@ export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showr
       return null;
     }
   }
-  const photo = (listing, i = 0, alt = '') => (listing.photos?.[i] ? `<img class="photo" src="/photos/${listing.photos[i]}" alt="${escape(alt)}" loading="lazy">` : `<div class="photo none">${listing.category ? `${escape(listing.category)} · ` : ''}Photo coming</div>`);
+  // A piece's own photograph; without one, a photograph of its kind of thing, marked as not the piece itself.
+  const slug = (category) => String(category ?? '').toLowerCase().replace(/[^a-z]+/g, '-').replace(/^-|-$/g, '');
+  const photo = (listing, i = 0, alt = '') => {
+    if (listing.photos?.[i]) return `<img class="photo" src="/photos/${listing.photos[i]}" alt="${escape(alt)}" loading="lazy">`;
+    const standIn = stock(slug(listing.category)) || stock('other');
+    return standIn ? `<div class="photo stand-in"><img src="${standIn}" alt="" loading="lazy"><span>${listing.category ? `${escape(listing.category)} · ` : ''}Photo coming</span></div>` : `<div class="photo none">${listing.category ? `${escape(listing.category)} · ` : ''}Photo coming</div>`;
+  };
   const status = (p, listing, guest) => p.render('listing-status', { unit: room.unitKey(listing.key), me: guest?.pub ?? '', stateNow: listing.state === 'available' ? 'free' : listing.state === 'sold' ? 'taken' : 'held', byNow: listing.mine ? guest?.pub ?? '' : '', untilNow: listing.until, untilLabel: listing.until ? new Date(listing.until).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZone: shop.timeZone }) : '', now: Date.now(), timeZone: shop.timeZone });
 
   function floor(p, url, guest, account) {
-    const all = room.listings(guest);
-    const fresh = all.filter((listing) => listing.state !== 'sold').length;
-    return `<section class="hero"><h1>${escape(shop.short)}: one of a kind</h1><p class="lede">Antiques, vintage and consignment in ${escape(shop.town)}. ${fresh} pieces on the floor today. Hold one till tomorrow for free, buy it here, or ask us about it. ${escape(shop.hours)}.</p><div class="actions"><a class="go" href="#floor">See the floor</a>${account ? '<a class="button light" href="/account">Your holds and buys</a>' : '<a class="button light" href="/account/sign-up">Make an account</a>'}</div></section>
-${note(url)}
-<section class="two"><div class="panel"><h2>How it works</h2><ol><li>Every piece is the only one. When it’s held or sold, every open page shows it at once.</li><li>Hold it free for ${shop.holdHours} hours with a name and a phone number, or buy it here.</li><li>${escape(shop.pickup)}</li></ol></div><div class="panel"><h2>Visit</h2><dl class="facts"><dt>Where</dt><dd>${escape(shop.town)}</dd><dt>Hours</dt><dd>${escape(shop.hours)}</dd></dl></div></section>
-<h2 id="floor">On the shop floor</h2>
-<ul class="grid">${[...all.filter((listing) => listing.state !== 'sold'), ...all.filter((listing) => listing.state === 'sold').slice(0, 6)]
-      .map((listing) => `<li class="card">${photo(listing, 0, listing.title)}<h2><a href="/l/${listing.key}">${escape(listing.title)}</a></h2><p class="row"><strong>${money(listing.price)}</strong> ${status(p, listing, guest)}</p><p>${escape(listing.era)}</p></li>`)
-      .join('')}</ul>`;
+    const card = (listing) => `<li class="card${listing.state === 'sold' ? ' gone' : ''}"><a class="pic" href="/l/${listing.key}" tabindex="-1" aria-hidden="true">${photo(listing, 0, '')}</a><div class="body"><h3><a href="/l/${listing.key}">${escape(listing.title)}</a></h3><p class="era">${escape(listing.era)}</p><p class="row"><strong>${money(listing.price)}</strong> ${status(p, listing, guest)}</p></div></li>`;
+    return landing({ shop, listings: room.listings(guest), card, said: note(url), account });
   }
 
   function listingPage(p, url, guest, listing) {
@@ -107,24 +116,27 @@ ${note(url)}
         : listing.state === 'held' && !listing.mine
           ? `<p class="notice">Someone is holding this one. Ask below and we’ll call if it comes free.</p>`
           : `<div class="actions">
-${listing.mine ? `<form class="panel" method="post" action="/l/${listing.key}/release"><h2>It’s held for you</h2><p>We’ll keep it at the counter. ${escape(shop.pickup)}</p><button class="button light" type="submit">Let it go</button></form>` : form('hold', `Hold it till tomorrow`, `<p>Free. We keep it for ${shop.holdHours} hours and call if you don’t make it.</p>${who}<button type="submit">Hold it</button>`)}
+${listing.mine ? `<form class="panel" method="post" action="/l/${listing.key}/release"><h2>It’s held for you</h2><p>We’ll keep it at the counter. ${escape(shop.pickup)}</p><button class="button light" type="submit">Let it go</button></form>` : form('hold', `Hold it till tomorrow`, `<p>Free. We keep it for ${shop.holdHours} hours and call if you don’t make it.</p>${who}<button type="submit" class="go">Hold it</button>`)}
 ${form('buy', `Buy it now · ${money(listing.price)}`, `<p class="lede">Test mode: no money moves. Any card number works except 4000 0000 0000 0002.</p>${who}<label>Email<input name="email" type="email" autocomplete="email" required></label><label>Card number<input name="card" inputmode="numeric" autocomplete="cc-number" required></label><button type="submit">Pay ${money(listing.price)}</button>`)}
 </div>`;
-    return `<section><a href="/">Back to the shop floor</a><h1>${escape(listing.title)}</h1><p class="row lede"><strong>${money(listing.price)}</strong> ${status(p, listing, guest)}</p></section>
+    return `<div class="piece">
+<section class="page-head"><a class="back" href="/#floor">Back to the shop floor</a><p class="kicker">${escape(listing.category ?? 'One of a kind')}</p><h1>${escape(listing.title)}</h1><p class="row price"><strong>${money(listing.price)}</strong> ${status(p, listing, guest)}</p></section>
 ${note(url)}
-${listing.photos?.length ? `<div class="gallery">${listing.photos.map((id, i) => `<img src="/photos/${id}" alt="${escape(listing.title)}, photo ${i + 1}">`).join('')}</div>` : photo(listing)}
-<section class="panel"><p>${escape(listing.description)}</p><dl class="facts"><dt>Era</dt><dd>${escape(listing.era)}</dd><dt>Size</dt><dd>${escape(listing.size)}</dd><dt>Condition</dt><dd>${escape(listing.condition)}</dd></dl></section>
-${actions}
-${form('ask', 'Ask about it', `${who}<label>Your question<textarea name="message" rows="3" required></textarea></label><button class="button light" type="submit">Send it</button>`)}`;
+<div class="piece-grid">
+  <div class="shots">${listing.photos?.length ? `<div class="gallery">${listing.photos.map((id, i) => `<img src="/photos/${id}" alt="${escape(listing.title)}, photo ${i + 1}">`).join('')}</div>` : photo(listing)}
+    <section class="panel"><p>${escape(listing.description)}</p><dl class="facts"><dt>Era</dt><dd>${escape(listing.era)}</dd><dt>Size</dt><dd>${escape(listing.size)}</dd><dt>Condition</dt><dd>${escape(listing.condition)}</dd></dl></section></div>
+  <div class="deal">${actions}
+${form('ask', 'Ask about it', `${who}<label>Your question<textarea name="message" rows="3" required></textarea></label><button class="button light" type="submit">Send it</button>`)}</div>
+</div></div>`;
   }
 
   function backOffice(url) {
     const { listings, enquiries } = room.back();
     const row = (listing) =>
       `<tr><td><a href="/l/${listing.key}">${escape(listing.title)}</a><br><small>${money(listing.price)}</small></td><td>${listing.state === 'sold' ? 'Sold' : listing.state === 'held' ? 'On hold' : 'Available'}${listing.buyer && listing.state !== 'available' ? `<br><small>${escape(listing.buyer.how)}${listing.buyer.name ? `: ${escape(listing.buyer.name)}, ${escape(listing.buyer.phone ?? '')}` : ''}</small>` : ''}</td><td>${listing.state === 'sold' ? '' : `<form method="post" action="/back/sold"><input type="hidden" name="key" value="${listing.key}"><button type="submit">Sold in the shop</button></form>`}${listing.state === 'held' ? `<form method="post" action="/back/release"><input type="hidden" name="key" value="${listing.key}"><button class="button light" type="submit">Let the hold go</button></form>` : ''}</td></tr>`;
-    return `<section><h1>The back office</h1><p class="lede">Add what comes in, mark what sells at the counter, and answer questions.</p></section>
+    return `<section class="page-head"><h1>The back office</h1><p class="lede">Add what comes in, mark what sells at the counter, and answer questions.</p></section>
 ${note(url)}
-<form class="panel" method="post" action="/back/add" enctype="multipart/form-data"><h2>Add a piece</h2>
+<form class="panel add-piece" method="post" action="/back/add" enctype="multipart/form-data"><h2>Add a piece</h2>
   <label>Title<input name="title" required></label><label>Price, in dollars<input name="price" inputmode="decimal" required></label>
   <label>Category<select name="category">${shop.categories.map((one) => `<option>${escape(one)}</option>`).join('')}</select></label>
   <label>Era<input name="era"></label><label>Size<input name="size"></label><label>Condition<input name="condition"></label>
@@ -141,7 +153,10 @@ ${note(url)}
       if (zubra.handle(req, res)) return;
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/health') return res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
-      if (url.pathname === '/favicon.ico') return res.writeHead(204).end();
+      if (serveAsset(req, res, url)) return;
+      // A made-up shop asks not to be listed; a real one (shop.listed) lists its public pages only.
+      if (url.pathname === '/robots.txt') return res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end(shop.listed ? 'User-agent: *\nDisallow: /admin\nDisallow: /back\nDisallow: /staff\nDisallow: /account\n' : 'User-agent: *\nDisallow: /\n');
+      if (url.pathname === '/favicon.ico') return res.writeHead(302, { location: '/assets/favicon.svg' }).end();
       const picture = url.pathname.match(/^\/photos\/([0-9a-f]{64}\.[a-z]{3,4})$/);
       if (picture) {
         const file = await room.files.get(picture[1]);
@@ -155,7 +170,11 @@ ${note(url)}
       const inBack = staff.can(who, 'staff');
       const owner = staff.can(who, 'owner');
       const nav = { customer: account, staff: inBack };
-      const show = (p, title, body, options = {}) => page(res, p, title, body, { nav, ...options });
+      res.who = who;
+      // Staff pages (the admin passes `wide`) go in the staff shell; the rest in the shop's own page.
+      const staffHere = () => STAFF_LINKS.filter((href) => url.pathname === href || url.pathname.startsWith(`${href}/`)).sort((a, b) => b.length - a.length)[0] ?? '';
+      const show = (p, title, body, { wide = false, here, ...options } = {}) => (wide ? staffPage(res, p, title, body, { here: staffHere(), ...options }) : page(res, p, title, body, { nav, here, ...options }));
+      const signInPage = () => show(zubra.page(), 'Sign in', `<div class="auth">${pages.signIn(url)}</div>`);
       if (url.pathname.startsWith('/account') || url.pathname.startsWith('/admin')) res.setHeader('cache-control', 'no-store');
 
       if (req.method === 'POST') {
@@ -291,7 +310,7 @@ ${note(url)}
 
       if (await pages.handle(req, res, url, null)) return;
       const p = zubra.page();
-      if (url.pathname === '/') return show(p, 'The shop floor', floor(p, url, guest, account), { here: '/' });
+      if (url.pathname === '/') return show(p, 'The shop floor', floor(p, url, guest, account), { here: '/', landing: true, canonical: publicUrl ? `${publicUrl}/` : '' });
       const showing = url.pathname.match(/^\/l\/(l[a-z0-9]+)$/);
       const listing = showing && room.listing(showing[1], guest);
 
@@ -307,8 +326,8 @@ ${note(url)}
 
       // The admin: staff only; reports, settings and the outbox for owners.
       if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
-        if (!inBack) return show(p, 'Sign in', pages.signIn(url));
-        const bar = pages.bar(who);
+        if (!inBack) return signInPage();
+        const bar = '';
         const said = note(url);
         const wide = { wide: true, here: '/admin' };
         if (url.pathname === '/admin') return show(p, 'Overview', admin.dashboard({ who, owner, bar }), wide);
@@ -325,7 +344,7 @@ ${note(url)}
         const oneCustomer = url.pathname.match(/^\/admin\/customers\/(c[a-z0-9]+)$/);
         const person = oneCustomer && customers.get(oneCustomer[1]);
         if (person) return show(p, person.name, admin.customer({ one: person, owner, bar, said }), wide);
-        if (['/admin/reports', '/admin/reports.csv', '/admin/settings', '/admin/outbox'].includes(url.pathname) && !owner) return show(p, 'Owners only', '<section><h1>Owners only</h1><p class="lede">Ask an owner to see this page.</p><p><a href="/admin">Back to the overview</a></p></section>', { status: 403 });
+        if (['/admin/reports', '/admin/reports.csv', '/admin/settings', '/admin/outbox'].includes(url.pathname) && !owner) return show(p, 'Owners only', '<section class="page-head"><h1>Owners only</h1><p class="lede">Reports, settings and the outbox are for owners. Ask one to show you this page.</p></section><p><a class="button light" href="/admin">Back to the overview</a></p>', { status: 403, wide: true });
         if (url.pathname === '/admin/reports') return show(p, 'Reports', admin.reports({ url, owner, bar }), wide);
         if (url.pathname === '/admin/reports.csv') return downloadCsv(res, 'sales-by-period.csv', admin.reportCsv(url));
         if (url.pathname === '/admin/settings') return show(p, 'Settings', admin.settings({ owner, bar, said }), wide);
@@ -334,8 +353,8 @@ ${note(url)}
       }
       if (listing) return show(p, listing.title, listingPage(p, url, guest, listing));
       if (url.pathname === '/back') {
-        if (!inBack) return show(p, 'Sign in', pages.signIn(url));
-        return show(p, 'The back office', pages.bar(who) + backOffice(url));
+        if (!inBack) return signInPage();
+        return show(p, 'The back office', backOffice(url), { wide: true });
       }
       send(res, 404, 'Not found');
     } catch (error) {
