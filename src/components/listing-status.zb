@@ -21,10 +21,11 @@
 </script>
 <style>
   :host { display: inline-block; }
-  span { display: inline-block; padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.85rem; font-weight: 700; }
+  span { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.85rem; font-weight: 700; white-space: nowrap; }
+  span::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; }
   .available { background: #e1f0e3; color: #1d4d27; }
   .held { background: #f7ead2; color: #6a4210; }
-  .sold { background: #ead9d9; color: #6b1f1f; }
+  .sold { background: var(--night, #1b222c); color: #fff; }
 </style>
 <listing-status unit="" me="" state-now="free" by-now="" until-now={0} until-label="" now={0} time-zone="America/New_York">
   <span class="sold" zb-if={state === 'taken'}>Sold</span>
