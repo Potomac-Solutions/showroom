@@ -16,21 +16,21 @@ body.staff {
 /* Dark: by the system's setting, or by the switch in the sidebar (which wins either way). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme=light]) body.staff {
-    --background: #12171e; --foreground: #e9e4db; --card: #1b222c; --card-foreground: #e9e4db; --field: #12171e;
-    --border: #323c4a; --line: #323c4a; --input: #4a5668; --muted: #232c38; --muted-foreground: #aab1bc;
-    --primary: #d9aa52; --primary-foreground: #1b222c; --brand: #d9aa52; --brand-deep: #ecc270; --brand-rgb: 217 170 82; --ring: #d9aa52;
-    --hot: #e08a78; --hot-ink: #eba595; --accent: #e08a78; --note: #232c38; --ink: #e9e4db;
+    --background: #150b0d; --foreground: #e9e4db; --card: #260c11; --card-foreground: #e9e4db; --field: #150b0d;
+    --border: #3d2227; --line: #3d2227; --input: #5c3a40; --muted: #2a171b; --muted-foreground: #bca9ab;
+    --primary: #8fd3c1; --primary-foreground: #260c11; --brand: #8fd3c1; --brand-deep: #b0e3d5; --brand-rgb: 143 211 193; --ring: #8fd3c1;
+    --hot: #7fc7b5; --hot-ink: #a5dccd; --accent: #7fc7b5; --note: #2a171b; --ink: #e9e4db;
     --ok-bg: #153823; --ok-fg: #a9e3bd; --bad-bg: #4a1a15; --bad-fg: #f6b8b0; --info-bg: #17324a; --info-fg: #b3d6f2; --warn-bg: #4a3410; --warn-fg: #f6d58f;
-    --side: #0b0f14; --shadow: none; color-scheme: dark;
+    --side: #0d0607; --shadow: none; color-scheme: dark;
   }
 }
 :root[data-theme=dark] body.staff {
-    --background: #12171e; --foreground: #e9e4db; --card: #1b222c; --card-foreground: #e9e4db; --field: #12171e;
-    --border: #323c4a; --line: #323c4a; --input: #4a5668; --muted: #232c38; --muted-foreground: #aab1bc;
-    --primary: #d9aa52; --primary-foreground: #1b222c; --brand: #d9aa52; --brand-deep: #ecc270; --brand-rgb: 217 170 82; --ring: #d9aa52;
-    --hot: #e08a78; --hot-ink: #eba595; --accent: #e08a78; --note: #232c38; --ink: #e9e4db;
+    --background: #150b0d; --foreground: #e9e4db; --card: #260c11; --card-foreground: #e9e4db; --field: #150b0d;
+    --border: #3d2227; --line: #3d2227; --input: #5c3a40; --muted: #2a171b; --muted-foreground: #bca9ab;
+    --primary: #8fd3c1; --primary-foreground: #260c11; --brand: #8fd3c1; --brand-deep: #b0e3d5; --brand-rgb: 143 211 193; --ring: #8fd3c1;
+    --hot: #7fc7b5; --hot-ink: #a5dccd; --accent: #7fc7b5; --note: #2a171b; --ink: #e9e4db;
     --ok-bg: #153823; --ok-fg: #a9e3bd; --bad-bg: #4a1a15; --bad-fg: #f6b8b0; --info-bg: #17324a; --info-fg: #b3d6f2; --warn-bg: #4a3410; --warn-fg: #f6d58f;
-    --side: #0b0f14; --shadow: none; color-scheme: dark;
+    --side: #0d0607; --shadow: none; color-scheme: dark;
 }
 
 .staff h1 { font-size: clamp(1.7rem, 4vw, 2.2rem); }
@@ -223,3 +223,9 @@ kbd { padding: 0.05rem 0.4rem; border-radius: 0.3rem; background: rgb(255 255 25
 .staff td button { min-height: 2.4rem; padding: 0.4rem 0.9rem; font-size: 0.92rem; }
 .facts { grid-template-columns: max-content 1fr; }
 @media (max-width: 44rem) { .staff table:not(.cards), .staff table:not(.cards) tbody, .staff table:not(.cards) tr, .staff table:not(.cards) td { display: block; } .staff table:not(.cards) tr { padding: 0.8rem 0; border-bottom: 1px solid var(--border); } .staff table:not(.cards) td { padding: 0.2rem 0; border: 0; overflow-wrap: anywhere; } }
+
+/* The back office is a ledger: a wide margin, the sections in the shop's serif, and a rule beside the open one. */
+@media (min-width: 56.01rem) { .shell { grid-template-columns: 17.5rem minmax(0, 1fr); } }
+.side nav a { border-radius: 0; font-family: var(--font-heading); font-weight: 700; font-size: 1.08rem; }
+.side nav a[aria-current] { background: none; color: var(--glow); box-shadow: inset 2px 0 0 var(--glow); }
+.side nav a[aria-current] b { background: var(--glow); color: var(--on-glow); }

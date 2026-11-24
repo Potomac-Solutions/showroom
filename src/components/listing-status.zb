@@ -25,7 +25,7 @@
   span::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; }
   .available { background: #e1f0e3; color: #1d4d27; }
   .held { background: #f7ead2; color: #6a4210; }
-  .sold { background: var(--night, #1b222c); color: #fff; }
+  .sold { background: var(--night, #260c11); color: #fff; }
 </style>
 <listing-status unit="" me="" state-now="free" by-now="" until-now={0} until-label="" now={0} time-zone="America/New_York">
   <span class="sold" zb-if={state === 'taken'}>Sold</span>
