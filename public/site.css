@@ -129,3 +129,7 @@
 .hero .actions, .hero-strip .wrap { justify-content: center; }
 .hero .kicker { color: var(--on-night-soft); font-size: 1.05rem; }
 .hero::before { background: radial-gradient(ellipse at center, rgb(var(--shade-rgb) / 0.62) 0%, rgb(var(--shade-rgb) / 0.5) 50%, rgb(var(--shade-rgb) / 0.82) 100%); }
+
+/* The story photo hangs in the key's oval frame, with the verdigris line around it. */
+body .split .pic { aspect-ratio: 3 / 4; width: min(100%, 24rem); justify-self: center; border-radius: 50%; outline: 1.5px solid var(--glow); outline-offset: 12px; box-shadow: none; }
+body .split .pic img { border-radius: 50%; }
