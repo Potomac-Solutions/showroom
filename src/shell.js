@@ -21,7 +21,7 @@ export function shell({ title, shop, body, who, owner = false, here = '', refres
   <meta name="robots" content="noindex, nofollow">${refresh ? `
   <meta http-equiv="refresh" content="${refresh}">` : ''}
   <title>${escape(title)} · ${escape(shop.name)} staff</title>
-  <meta name="theme-color" content="#1b222c">
+  <meta name="theme-color" content="#260c11">
   <link rel="icon" href="${asset('favicon.svg')}" type="image/svg+xml">
   <script>document.documentElement.classList.add('js');try{var t=localStorage.getItem('theme');if(t==='dark'||t==='light')document.documentElement.dataset.theme=t}catch(e){}</script>
   <style>${FONT_CSS}${CHART_CSS}</style>

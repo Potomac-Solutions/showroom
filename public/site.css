@@ -120,3 +120,12 @@
   .hero .actions .go { flex: 1 1 100%; }
   .hero-strip .wrap { gap: 0.2rem 1.5rem; font-size: 0.95rem; }
 }
+
+/* The hero is hung in the middle of the wall, like the shop's best piece; the second line is the italic, not a second colour. */
+.hero-words { text-align: center; }
+.hero h1 { max-width: 16ch; margin-inline: auto; }
+.hero h1 em { color: inherit; }
+.hero .lede { margin-inline: auto; }
+.hero .actions, .hero-strip .wrap { justify-content: center; }
+.hero .kicker { color: var(--on-night-soft); font-size: 1.05rem; }
+.hero::before { background: radial-gradient(ellipse at center, rgb(var(--shade-rgb) / 0.62) 0%, rgb(var(--shade-rgb) / 0.5) 50%, rgb(var(--shade-rgb) / 0.82) 100%); }

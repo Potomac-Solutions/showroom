@@ -9,23 +9,23 @@
   --paper-deep: #ece4d9;
   --ink: #2b2522;
   --ink-soft: #665a50;
-  --brand: #3d4a5c;
-  --brand-deep: #2b3543;
-  --brand-rgb: 61 74 92;
-  --night: #1b222c;
-  --night-rgb: 27 34 44;
-  --shade-rgb: 15 20 27;
-  --hot: #8c3b2e;
-  --hot-ink: #6e2b20;
-  --hot-rgb: 140 59 46;
-  --glow: #d9aa52;
-  --glow-hi: #ecc270;
-  --glow-rgb: 217 170 82;
-  --on-glow: #1b222c;
+  --brand: #6f1d2a;
+  --brand-deep: #4f121c;
+  --brand-rgb: 111 29 42;
+  --night: #260c11;
+  --night-rgb: 38 12 17;
+  --shade-rgb: 20 5 8;
+  --hot: #1f6f63;
+  --hot-ink: #17574d;
+  --hot-rgb: 31 111 99;
+  --glow: #8fd3c1;
+  --glow-hi: #b0e3d5;
+  --glow-rgb: 143 211 193;
+  --on-glow: #260c11;
   --on-hot: #fff;
-  --on-night: #ece6dc;
-  --on-night-soft: #bfc4cc;
-  --on-night-dim: #8f97a3;
+  --on-night: #f1e7e2;
+  --on-night-soft: #d2bfc0;
+  --on-night-dim: #a89092;
   --line: #ddd2c6;
 
   --background: var(--paper);
@@ -208,3 +208,13 @@ tr.done { opacity: 0.6; }
   .site-head, .site-foot, .bagbar, .toast, .skip { display: none !important; }
   body { background: #fff; }
 }
+
+/* The shop's own shapes: square corners and a framed photograph, like a gallery label. */
+:root { --radius: 0.125rem; --radius-sm: 0.125rem; }
+body :is(button:not(.action-button), .button, .go, .bag) { border-radius: 2px; letter-spacing: 0.03em; }
+.site-head { box-shadow: inset 0 -1px 0 rgb(var(--glow-rgb) / 0.55); }
+.site-head nav a:not(.bag), .badge { border-radius: 2px; }
+.kicker { letter-spacing: 0.22em; }
+body .split .pic { rotate: none; border-radius: 2px; outline: 1px solid var(--line); outline-offset: 10px; }
+:root { --shadow: none; }
+.kicker { text-transform: none; font-variant-caps: all-small-caps; font-size: 0.95rem; letter-spacing: 0.14em; }
