@@ -1,6 +1,6 @@
 # Showroom
 
-Unique stock, for a shop where every piece is one of a kind: antiques, consignment, vintage, a gallery, used gear. Each piece has its photos and its story; a guest can hold it till tomorrow, buy it online, or ask about it, and every open page shows at once when it's held or sold. A Potomac Solutions platform, built on the [kit](https://github.com/Potomac-Solutions/kit) and [Zubra](https://github.com/zubra-js/zubra).
+Unique stock, for a shop where every piece is one of a kind: antiques, consignment, vintage, a gallery, used gear. Each piece has its photos and its story; a guest can hold it till tomorrow, buy it online, or ask about it, and every open page shows at once when it's held or sold. A Potomac Solutions platform, built on the Potomac kit and [Zubra](https://github.com/zubra-js/zubra).
 
 The shop it starts with, Old Depot Antiques & Consignment in Frostburg, Maryland, is made up. Nothing here is really for sale, and payments are in test mode.
 
@@ -69,7 +69,7 @@ For a real business, leave out `DEMO`, set `DATA_DIR` to a mounted volume, start
 
 | Piece | Job |
 | --- | --- |
-| [Potomac kit](https://github.com/Potomac-Solutions/kit) (private) | `hold` (each piece is a pool of one: held for a day, held for the minutes a payment takes, or taken for good), `pay` (its test provider, one charge per piece), `files` (photos, kept by their hash; only real images), `staff` and `staff/pages` (the owner and staff: passwords, sessions, invites, roles, and their pages), `auth` (guest and staff cookies), `store` (the Sync log) |
+| Potomac kit (private) | `hold` (each piece is a pool of one: held for a day, held for the minutes a payment takes, or taken for good), `pay` (its test provider, one charge per piece), `files` (photos, kept by their hash; only real images), `staff` and `staff/pages` (the owner and staff: passwords, sessions, invites, roles, and their pages), `auth` (guest and staff cookies), `store` (the Sync log) |
 | `@zubra/server` | Renders every page before any JavaScript runs |
 | `@zubra/sync` | The log (one SQLite file). Each listing and whether it's free are documents only the server writes; pages follow them live, and never read who holds or bought a piece |
 | `src/shop.js` | The shop: name, hours, how long a hold lasts, the pieces it starts with |
@@ -82,7 +82,7 @@ For a real business, leave out `DEMO`, set `DATA_DIR` to a mounted volume, start
 ## Run it
 
 ```sh
-npm install      # needs read access to the private Potomac-Solutions/kit repository
+npm install      # needs read access to the private Potomac kit repository
 npm start        # http://localhost:3000
 npm test         # needs Chrome or Playwright's Chromium
 ```
