@@ -32,19 +32,31 @@ const UNIT = 'item';
 /** The shop's own name in the holds, for things sold or held at the counter. */
 const SHOP = 'shop';
 
-export async function createShowroom({ db = ':memory:', files, now = Date.now, holdMs = shop.holdHours * 3_600_000, payMs = 2 * 60_000 } = {}) {
+export async function createShowroom({ db = ':memory:', files, now = Date.now, holdMs = shop.holdHours * 3_600_000, payMs = 30 * 60_000, provider = testProvider() } = {}) {
   if (!files) throw new TypeError('createShowroom needs files (the kit’s diskFiles or memoryFiles)');
   const sync = createSyncServer({
     log: await sqliteLog(db),
     // Pages write nothing: every collection here is the server's.
-    authorize: serverOnly([...SERVER_ONLY, 'listings', 'holders', 'buyers', 'enquiries', 'settings', 'audit'], ({ kind }) => kind === 'read'),
+    authorize: serverOnly([...SERVER_ONLY, 'listings', 'holders', 'buyers', 'buying', 'enquiries', 'settings', 'audit'], ({ kind }) => kind === 'read'),
     // A page reads the listings and whether each is free; never who holds or bought it.
     scope: () => ({ listings: true, units: true }),
   });
   const store = await syncStore(sync);
   // One listing is one unit in a pool of its own: one person holds it at a time.
   const holds = createHolds({ store, holdMs, ceilingMs: holdMs + payMs, max: 1, names: { holders: 'holders' }, now });
-  const pay = createPay({ provider: testProvider(), store, now });
+  // Paid on the platform's page (Stripe Checkout, with Link, for this shop). `buying/<key>` is a
+  // purchase while the guest is there; `wanted` lets the platform take the money only while it
+  // is, and while the piece is still held for them.
+  const pay = createPay({
+    provider,
+    store,
+    now,
+    wanted: (id) => {
+      const key = String(id).split('/')[1];
+      const buying = paying(key);
+      return Boolean(buying && buying.payment === id && holds.taken(poolOf(key)).get(UNIT)?.by === buying.as);
+    },
+  });
 
   // What the owner changed, over the defaults in shop.js.
   const defaults = { hours: shop.hours, pickup: shop.pickup };
@@ -54,6 +66,17 @@ export async function createShowroom({ db = ':memory:', files, now = Date.now, h
   if (!store.under('listings').length) {
     let at = now() - seedListings.length * 60_000;
     for (const listing of seedListings) await store.write('listings', newKey(), { ...listing, photos: [], added: (at += 60_000) });
+  }
+
+  /** A purchase under way on the platform's page, or null. */
+  const paying = (key) => (store.get('buying', key)?.state === 'paying' ? store.get('buying', key) : null);
+
+  /** A purchase let go: off the platform (`wanted` says no), and the piece back on the floor unless they held it before. */
+  async function letGo(key) {
+    const buying = paying(key);
+    if (!buying) return;
+    await store.write('buying', key, { state: 'let-go', at: now() });
+    if (!buying.wasHolding) await holds.release(buying.as, poolOf(key));
   }
 
   /** A listing as it stands: available, on hold (until when, and whether it's this guest's), or sold. */
@@ -116,16 +139,30 @@ export async function createShowroom({ db = ':memory:', files, now = Date.now, h
      * Buy it online: held for the payment (the last of anything goes to one person), charged
      * once, then sold for good. A declined card lets it go, unless the guest was holding it.
      */
-    async buy(guest, key, form) {
+    async buy(guest, key, form, { back = '', cancel = '' } = {}) {
       const listing = view(key, guest);
       if (!guest || !listing) return { error: 'That isn’t in the shop.' };
       if (listing.state === 'sold') return { error: listing.mine ? 'You’ve already bought this.' : 'Sorry, that’s been sold.' };
       if (listing.state === 'held' && !listing.mine) return { error: 'Someone is holding that one.' };
-      const wasHolding = listing.state === 'held';
+      // Held already (Hold it till tomorrow), not just mid-way through paying online.
+      const wasHolding = listing.state === 'held' && !paying(key);
       // Held from another device of the same account: the hold is that browser's, so buy as it.
       const as = wasHolding ? holds.taken(poolOf(key)).get(UNIT).by : guest.pub;
-      const held = await holds.choose(as, poolOf(key), { units: [UNIT] });
+      // Held while they pay on the platform's page, for as long as that takes (`payMs`).
+      const held = await holds.chooseAcross(as, [{ pool: poolOf(key), units: [UNIT] }], { ms: payMs });
       if (held.error) return { error: 'Someone just took that one.' };
+      const buyer = { name: String(form.get('name') ?? '').trim().slice(0, 80), email: String(form.get('email') ?? '').trim().slice(0, 200), phone: String(form.get('phone') ?? '').trim().slice(0, 40) };
+      if (back) {
+        // One payment per guest and piece: another guest's try is never this one's page.
+        const payment = `listing/${key}/${String(as).slice(0, 24)}`;
+        await store.write('buying', key, { state: 'paying', as, payment, wasHolding, buyer, customer: guest.customer ?? '', lapsed: false, at: now() });
+        const started = await pay.start({ id: payment, cents: listing.price, description: listing.title, back: `${back}?listing=${key}`, cancel: cancel ? `${cancel}?listing=${key}` : '' });
+        if (!started.ok) {
+          await letGo(key);
+          return { error: started.error === 'paid' ? 'You’ve already bought this.' : 'Paying online isn’t working right now. Hold it instead, and pay at the counter.' };
+        }
+        return { ok: true, paying: true, pay: started.url ? { url: started.url } : { frame: started.frame, ref: started.ref } };
+      }
       const paid = await pay.pay({ id: `listing/${key}`, cents: listing.price, method: { card: String(form.get('card') ?? '') }, description: `${listing.title} (test mode)` });
       if (!paid.ok) {
         if (!wasHolding) await holds.release(as, poolOf(key));
@@ -134,6 +171,49 @@ export async function createShowroom({ db = ':memory:', files, now = Date.now, h
       await holds.confirm(as, poolOf(key), [UNIT]);
       await store.write('buyers', key, { name: String(form.get('name') ?? '').trim().slice(0, 80), email: String(form.get('email') ?? '').trim().slice(0, 200), phone: String(form.get('phone') ?? '').trim().slice(0, 40), how: 'online', ref: paid.ref, owner: as, customer: guest.customer ?? store.get('buyers', key)?.customer ?? '', cents: listing.price, at: now() });
       return { ok: true };
+    },
+
+    /**
+     * Back from the platform's page, or its webhook: once it's paid, sold for good. Not paid:
+     * let go, unless they were holding it already.
+     */
+    async finish(key, { told } = {}) {
+      const buying = paying(key);
+      if (!buying) return store.get('buyers', key) && store.get('buying', key)?.state === 'done' ? { ok: true, again: true, key } : { error: 'That isn’t being bought any more. Try again.' };
+      const settled = await pay.settle({ id: buying.payment, ...(told ? { ref: pay.paid(buying.payment)?.ref, told } : {}) });
+      if (settled.error === 'not-paid') {
+        await letGo(key);
+        return { error: 'That payment didn’t go through, so nothing was charged.', key };
+      }
+      if (!settled.ok) return { error: 'That didn’t go through. Try again.', key };
+      const kept = await holds.confirm(buying.as, poolOf(key), [UNIT]);
+      if (kept.error) {
+        // Paid after the hold ran out and someone else took it: the shop refunds it.
+        await store.write('buying', key, { state: 'lapsed', lapsed: true, at: now() });
+        return { error: 'Your hold ran out while the payment went through. We’ll refund it.', key };
+      }
+      await store.write('buyers', key, { ...buying.buyer, how: 'online', customer: buying.customer, at: now() });
+      await store.write('buying', key, { state: 'done', at: now() });
+      return { ok: true, key, buyer: buying.buyer };
+    },
+
+    /** The webhook from the platform: `{ headers, body, url }`. */
+    async heard(request) {
+      const settled = await pay.heard(request);
+      const key = String(settled.id ?? '').split('/')[1];
+      if (!settled.ok || !key || !paying(key)) return settled;
+      return this.finish(key);
+    },
+
+    /** Backed out of the platform's page: nothing charged; let go, unless they were holding it. */
+    async cancel(guest, key) {
+      const buying = paying(key);
+      if (!guest || !buying || (buying.as !== guest.pub && !(guest.customer && buying.customer === guest.customer))) return { error: 'That isn’t being bought any more.', key };
+      // Asked once: paid already (the platform took it before they backed out), it's theirs.
+      const done = await this.finish(key);
+      if (done.ok) return done;
+      await letGo(key);
+      return { error: 'Nothing was charged.', key };
     },
 
     /** A question about a listing, for the staff. */

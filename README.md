@@ -19,7 +19,7 @@ The demo's pieces have no photos (each card says "Photo coming"); add some from 
 **The public side**
 1. **The landing page** (`/`): the shop, how holding and buying work, and the floor: everything for sale, then the six latest sales.
 2. **Hold a piece.** Give a name and a phone number, and **Hold it**: it's yours until this time tomorrow. In another window it says **On hold** without a reload.
-3. **Buy online** with any card number (`4000 0000 0000 0002` is declined). It shows **Sold** everywhere, and a receipt lands in the owner's **Outbox**.
+3. **Buy online**: you go on to pay on Stripe's page (until Stripe is set up, the kit's test page: press **Pay**, or go back without paying). It shows **Sold** everywhere, and a receipt lands in the owner's **Outbox**.
 4. **An account** (`/account`): sign up, and holds and purchases from this browser join it. Signed in on another device, what you hold is still yours: buy it from there. **Forgot your password?** sends a one-time link (to the Outbox, and the server's log).
 
 **The admin** (`/admin`, staff sign-in)
@@ -65,6 +65,21 @@ With `DEMO=1` the server is a demo anyone can try, back office included (`src/de
 
 For a real business, leave out `DEMO`, set `DATA_DIR` to a mounted volume, start it with `npm start`, and claim the first owner's setup link from the deploy log.
 
+## Paying
+
+The customer pays on **Stripe**: the card is typed there, never here. The piece is held for them while they're there (the last of anything goes to one person), and sold for good once Stripe says it's paid. Backing out puts it back on the floor, unless they were holding it already. Stripe Checkout takes cards, and Link (Stripe’s saved details) when it’s turned on in the Dashboard (Settings → Payment methods).
+
+Until Stripe's settings are on the server, the kit's test page stands in. It is plainly a test, with no card and no money, and makes the same trip there and back. To use Stripe's test mode, set these on Railway:
+
+| Setting | What |
+| --- | --- |
+| `PAY_STRIPE_KEY` | A test secret key, `sk_test_…` (Stripe Dashboard → Developers → API keys, in test mode). A test key means test mode: no money moves |
+| `PAY_STRIPE_WEBHOOK_SECRET` | Optional: a webhook endpoint for `checkout.session.completed` and `checkout.session.async_payment_succeeded` at `https://showroom.potomac.solutions/pay/webhook`, and its signing secret |
+
+`PAY_PROVIDER` picks another platform instead (`stripe`, `square`, `paypal`, `helcim`), with its own settings as in the kit's README. Nothing else changes. Keep the public demo on test keys: with live ones, real money moves.
+
+`SESSION_SECRET` must be at least 32 characters now (the kit refuses a shorter one).
+
 ## How it is put together
 
 | Piece | Job |
@@ -93,7 +108,7 @@ Node 26. `SESSION_SECRET` is required in production; `DATA_DIR` says where the d
 
 1. Without JavaScript: the floor and a piece's page; a hold till tomorrow, with the time; someone else sees it on hold and can't hold, buy or let it go; the back office sees who; the holder lets it go.
 2. A hold needs a name and a full phone number; a question needs both and the question, and reaches the back office.
-3. Buying online charges once and sells it for good; a declined card lets the piece go, or keeps the hold the buyer already had; a sold piece can't be held or bought again and goes to the end of the floor.
+3. Buying online charges once and sells it for good; backing out of the payment page lets the piece go, or keeps the hold the buyer already had; the same purchase on Stripe (faked) goes there and back and is sold once, the webhook too; a sold piece can't be held or bought again and goes to the end of the floor.
 4. Two people buying the same piece at the same moment: one gets it, the other is told.
 5. The floor is live: a hold, the staff letting it go, and a sale in the shop over someone's hold reach every open page at once.
 6. A hold runs out after its time: the piece is free for someone else, live pages show it free even before the sweep, and the sweep writes it down.

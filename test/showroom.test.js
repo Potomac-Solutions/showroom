@@ -30,7 +30,7 @@ let app;
 let quick; // holds that last a second and a half
 
 async function start(name, options = {}) {
-  const server = await withOwner(await createApp({ staffCost: COST, db: join(dir, `${name}.db`), photos: join(dir, `${name}-photos`), cache: false, secret: 'test', ...options }));
+  const server = await withOwner(await createApp({ staffCost: COST, db: join(dir, `${name}.db`), photos: join(dir, `${name}-photos`), cache: false, secret: 'test-only-secret-that-is-long-enough-1234', ...options }));
   await new Promise((done) => server.listen(0, done));
   return { server, base: `http://localhost:${server.address().port}` };
 }
@@ -59,9 +59,20 @@ async function device(site, name, { javaScriptEnabled = true, staff = false } = 
   page.on('pageerror', (error) => errors.push(`${name}: ${error.message}`));
   page.on('console', (message) => message.type() === 'error' && !/403/.test(message.text()) && errors.push(`${name}: ${message.text()}`));
   await page.goto(site.base);
+  // Sent on to the test payment page (standing in for Stripe's): "Pay", or for the declining
+  // card "Go back without paying", then the way back.
   const post = async (path, form, headers = {}) => {
     const response = await context.request.post(`${site.base}${path}`, { form, headers, maxRedirects: 0 });
-    return { status: response.status(), location: plain(response.headers().location ?? '') };
+    const location = plain(response.headers().location ?? '');
+    if (!location.startsWith('/pay/test')) return { status: response.status(), location };
+    const page = await (await context.request.get(`${site.base}${location}`)).text();
+    assert.match(page, /Once Stripe is set up, this page is Stripe’s own\./);
+    const ref = new URL(location, site.base).searchParams.get('ref');
+    const next = String(form.card ?? '').replace(/\D/g, '') === '4000000000000002'
+      ? /href="([^"]+)">Go back without paying/.exec(page)[1].replaceAll('&amp;', '&')
+      : (await context.request.post(`${site.base}/pay/test`, { form: { ref, answer: 'pay' }, maxRedirects: 0 })).headers().location;
+    const back = await context.request.get(new URL(next, site.base).href, { maxRedirects: 0 });
+    return { status: back.status(), location: plain(back.headers().location ?? '') };
   };
   const get = async (path) => (await context.request.get(`${site.base}${path}`)).text();
   if (staff) await post('/staff/sign-in', { email: OWNER.email, password: OWNER.password });
@@ -118,13 +129,13 @@ test('holding needs a name and a phone; asking needs a question too, and reaches
   await office.context.close();
 });
 
-test('buying online sells it for good, once; a declined card lets it go, or keeps a hold the buyer had', async () => {
+test('buying online sells it for good, once; backing out of the payment page lets it go, or keeps a hold the buyer had', async () => {
   const buyer = await device(app, 'buyer', { javaScriptEnabled: false });
   const rug = find(app, 'Hand-hooked rug');
-  assert.equal((await buyer.post(`/l/${rug.key}/buy`, card('4000 0000 0000 0002'))).location, `/l/${rug.key}?problem=That card was declined. Try another.`);
+  assert.equal((await buyer.post(`/l/${rug.key}/buy`, card('4000 0000 0000 0002'))).location, `/l/${rug.key}?problem=Nothing was charged.`);
   assert.equal(find(app, 'Hand-hooked rug').state, 'available', 'not holding it before: let go');
   assert.equal((await buyer.post(`/l/${rug.key}/hold`, who)).location.startsWith(`/l/${rug.key}?done=`), true);
-  assert.equal((await buyer.post(`/l/${rug.key}/buy`, card('4000 0000 0000 0002'))).location, `/l/${rug.key}?problem=That card was declined. Try another.`);
+  assert.equal((await buyer.post(`/l/${rug.key}/buy`, card('4000 0000 0000 0002'))).location, `/l/${rug.key}?problem=Nothing was charged.`);
   assert.equal(find(app, 'Hand-hooked rug').state, 'held', 'held before: still held');
   assert.equal((await buyer.post(`/l/${rug.key}/buy`, card('4242 4242 4242 4242'))).location, `/l/${rug.key}?done=It’s yours. Collect it from the front counter in opening hours; bring help for anything heavy.`);
   assert.equal(find(app, 'Hand-hooked rug').state, 'sold');

@@ -26,6 +26,7 @@ import { shell } from './src/shell.js';
 import { landing } from './src/site.js';
 import { photo as stock } from './src/assets.js';
 import { cards } from './src/tables.js';
+import { createPayments } from './src/payments.js';
 import { serveAsset } from './src/assets.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -34,12 +35,14 @@ const STAFF_LINKS = ['/back', '/admin', '/admin/inventory', '/admin/sales', '/ad
 const components = join(here, 'src', 'components');
 const money = (cents) => `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showroom.db'), photos = join(process.env.DATA_DIR ?? here, 'photos'), cache = true, secret = process.env.SESSION_SECRET, now = Date.now, holdMs, files, staffCost, publicUrl = process.env.PUBLIC_URL ?? '' , demo = process.env.DEMO === '1' } = {}) {
+export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showroom.db'), photos = join(process.env.DATA_DIR ?? here, 'photos'), cache = true, secret = process.env.SESSION_SECRET, now = Date.now, holdMs, files, staffCost, publicUrl = process.env.PUBLIC_URL ?? '' , demo = process.env.DEMO === '1' , payEnv = process.env, payFetch } = {}) {
   if (!secret) {
     if (process.env.NODE_ENV === 'production') throw new Error('Set SESSION_SECRET.');
-    secret = 'showroom-development-only';
+    secret = 'showroom-development-only-not-a-real-secret';
   }
-  const room = await createShowroom({ db, files: files ?? diskFiles(photos), now, holdMs });
+  // Stripe is this shop's platform (cards, and Link); until its key is on the server, the kit's test page stands in.
+  const payments = createPayments({ env: payEnv, intended: 'stripe', fetch: payFetch });
+  const room = await createShowroom({ db, files: files ?? diskFiles(photos), now, holdMs, provider: payments.provider });
   const guests = signedCookie({ secret, name: 'guest' });
   const zubra = createZubra({ components, cache, packages: ['@potomac-solutions/kit/components'] });
   const { shop } = room;
@@ -60,10 +63,15 @@ export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showr
     send: mail.send,
     templates: {
       reset: ({ name, link }) => ({ subject: `Reset your ${shop.name} password`, body: `Hi ${name},\n\nThis link sets a new password. It works once, for an hour:\n${link}\n\nIf it wasn’t you, ignore this email.` }),
-      bought: ({ name, title, price, link }) => ({ subject: `It’s yours: ${title}`, body: `Hi ${name},\n\nYou bought ${title} for ${price} (test mode).\n${link}\n\n${shop.pickup}` }),
+      bought: ({ name, title, price, link }) => ({ subject: `It’s yours: ${title}`, body: `Hi ${name},\n\nYou bought ${title} for ${price}${payments.sandbox ? ' (test mode)' : ''}.\n${link}\n\n${shop.pickup}` }),
     },
   });
   const origin = (req) => publicUrl || `http://${req.headers.host ?? 'localhost'}`;
+  /** The "it's yours" email, once, when a piece is first paid for online. */
+  async function tellBought(req, key, buyer) {
+    const listing = room.listing(key);
+    if (listing && buyer?.email) await notify.notify({ email: buyer.email }, 'bought', { name: buyer.name, title: listing.title, price: money(listing.price), link: `${origin(req)}/l/${key}` });
+  }
   const proxies = Number(process.env.TRUST_PROXIES ?? 0);
   const kitStaff = createStaff({ store: room.store, secure: production, ...(staffCost ? { cost: staffCost } : {}) });
   const staff = demo ? lockedStaff(kitStaff) : kitStaff;
@@ -121,7 +129,7 @@ export async function createApp({ db = join(process.env.DATA_DIR ?? here, 'showr
           ? `<p class="notice">Someone is holding this one. Ask below and we’ll call if it comes free.</p>`
           : `<div class="actions">
 ${listing.mine ? `<form class="panel" method="post" action="/l/${listing.key}/release"><h2>It’s held for you</h2><p>We’ll keep it at the counter. ${escape(shop.pickup)}</p><button class="button light" type="submit">Let it go</button></form>` : form('hold', `Hold it till tomorrow`, `<p>Free. We keep it for ${shop.holdHours} hours and call if you don’t make it.</p>${who}<button type="submit" class="go">Hold it</button>`)}
-${form('buy', `Buy it now · ${money(listing.price)}`, `<p class="lede">Test mode: no money moves. Any card number works except 4000 0000 0000 0002.</p>${who}<label>Email<input name="email" type="email" autocomplete="email" required></label><label>Card number<input name="card" inputmode="numeric" autocomplete="cc-number" required></label><button type="submit">Pay ${money(listing.price)}</button>`)}
+${form('buy', `Buy it now · ${money(listing.price)}`, `<p class="lede">${escape(payments.line)}</p>${who}<label>Email<input name="email" type="email" autocomplete="email" required></label><button type="submit">Continue to payment · ${money(listing.price)}</button>`)}
 </div>`;
     return `<div class="piece">
 <section class="page-head"><a class="back" href="/#floor">Back to the shop floor</a><p class="kicker">${escape(listing.category ?? 'One of a kind')}</p><h1>${escape(listing.title)}</h1><p class="row price"><strong>${money(listing.price)}</strong> ${status(p, listing, guest)}</p></section>
@@ -181,6 +189,30 @@ ${note(url)}
       const signInPage = () => show(zubra.page(), 'Sign in', `<div class="auth">${demo ? staffSignIn(escape) : ''}${pages.signIn(url)}</div>`);
       if (url.pathname.startsWith('/account') || url.pathname.startsWith('/admin')) res.setHeader('cache-control', 'no-store');
 
+      // Paying on the platform's page: the test page, the way back, backing out, Helcim's frame and the webhook.
+      if (await payments.testRoute(req, res, url, readForm)) return;
+      if ((url.pathname === '/pay/back' || url.pathname === '/pay/cancel') && req.method === 'GET') {
+        const key = url.searchParams.get('listing') ?? '';
+        const done = url.pathname === '/pay/back' ? await room.finish(key) : await room.cancel(guest, key);
+        if (done.ok && !done.again) await tellBought(req, key, done.buyer);
+        return back(res, done.ok ? withDone(`/l/${key}`, `It’s yours. ${shop.pickup}`) : withProblem(`/l/${done.key ?? key}`, done));
+      }
+      if (url.pathname === '/pay/told' && req.method === 'POST') {
+        const form = await readForm(req);
+        if (!form) return send(res, 413, 'Too large');
+        const key = String(form.get('listing') ?? '');
+        const done = await room.finish(key, { told: String(form.get('told') ?? '') });
+        if (done.ok && !done.again) await tellBought(req, key, done.buyer);
+        return back(res, done.ok ? withDone(`/l/${key}`, `It’s yours. ${shop.pickup}`) : withProblem(`/l/${key}`, done));
+      }
+      if (url.pathname === '/pay/webhook' && req.method === 'POST') {
+        const request = await payments.webhook(req, publicUrl || origin(req));
+        if (!request) return send(res, 413, 'Too large');
+        const heard = await room.heard(request);
+        if (heard.ok && !heard.again && heard.key) await tellBought(req, heard.key, heard.buyer);
+        return send(res, heard.error === 'bad-signature' ? 401 : 200, heard.error === 'bad-signature' ? 'Bad signature' : 'ok');
+      }
+
       if (req.method === 'POST') {
         // Every form is ours: another site's post is refused (the cookies are SameSite=Lax too).
         if (req.headers['sec-fetch-site'] === 'cross-site') return send(res, 403, 'Forbidden');
@@ -189,13 +221,9 @@ ${note(url)}
         const acting = url.pathname.match(/^\/l\/(l[a-z0-9]+)\/(hold|release|buy|ask)$/);
         if (acting) {
           const [, key, what] = acting;
-          const done = what === 'ask' ? await room.ask(key, form) : what === 'release' ? await room.release(guest, key) : await room[what](guest, key, form);
+          const done = what === 'ask' ? await room.ask(key, form) : what === 'release' ? await room.release(guest, key) : what === 'buy' ? await room.buy(guest, key, form, { back: `${origin(req)}/pay/back`, cancel: `${origin(req)}/pay/cancel` }) : await room[what](guest, key, form);
           if (!done.ok) return back(res, withProblem(`/l/${key}`, done));
-          if (what === 'buy') {
-            const listing = room.listing(key);
-            const email = String(form.get('email') ?? '').trim();
-            if (email) await notify.notify({ email }, 'bought', { name: String(form.get('name') ?? '').trim(), title: listing.title, price: money(listing.price), link: `${origin(req)}/l/${key}` });
-          }
+          if (done.paying) return payments.send(res, done.pay, { cancel: `/pay/cancel?listing=${key}`, fields: { listing: key } });
           const said = { hold: 'It’s held for you until tomorrow. We’ll call if you don’t make it.', release: 'Let go. It’s back on the floor.', buy: `It’s yours. ${shop.pickup}`, ask: 'Sent. We’ll call you back.' }[what];
           return back(res, withDone(`/l/${key}`, said));
         }
@@ -369,7 +397,7 @@ ${note(url)}
     }
   });
   server.on('close', () => clearInterval(sweeper));
-  return Object.assign(server, { demo, room, staff, customers, sent: mail.sent });
+  return Object.assign(server, { demo, room, payments, staff, customers, sent: mail.sent });
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
